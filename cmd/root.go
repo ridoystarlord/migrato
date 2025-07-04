@@ -8,15 +8,15 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "mymigrate",
+	Use:   "migrato",
 	Short: "A lightweight Prisma-like migration tool for Go",
-	Long: `mymigrate is a simple migration CLI.
+	Long: `migrato is a simple migration CLI.
 
 Examples:
 
-  mymigrate init
-  mymigrate generate
-  mymigrate migrate
+  migrato init
+  migrato generate
+  migrato migrate
 `,
 }
 
