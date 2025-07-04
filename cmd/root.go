@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "migrato",
 	Short: "A lightweight Prisma-like migration tool for Go",
@@ -18,6 +20,7 @@ Examples:
   migrato generate
   migrato migrate
 `,
+Version: Version,
 }
 
 // Execute runs the CLI
