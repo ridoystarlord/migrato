@@ -1,0 +1,5 @@
+CREATE TABLE "{{.TableName}}" (
+{{- range $i, $col := .Columns }}
+  "{{$col.Name}}" {{$col.Type}}{{if $col.Primary}} PRIMARY KEY{{end}}{{if $col.Unique}} UNIQUE{{end}}{{if $col.Default}} DEFAULT {{$col.Default}}{{end}}{{if not (last $i $.Columns)}},{{end}}
+{{- end }}
+);
