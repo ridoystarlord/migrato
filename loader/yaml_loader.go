@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"github.com/ridoystarlord/go-migration-buddy/schema"
+	"github.com/ridoystarlord/migrato/schema"
 	"gopkg.in/yaml.v3"
 )
 

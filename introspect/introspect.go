@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ridoystarlord/go-migration-buddy/utils"
+	"github.com/ridoystarlord/migrato/utils"
 )
 
 type ExistingTable struct {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ridoystarlord/go-migration-buddy/runner"
+	"github.com/ridoystarlord/migrato/runner"
 	"github.com/spf13/cobra"
 )
 

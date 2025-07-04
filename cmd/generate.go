@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ridoystarlord/go-migration-buddy/diff"
-	"github.com/ridoystarlord/go-migration-buddy/generator"
-	"github.com/ridoystarlord/go-migration-buddy/introspect"
-	"github.com/ridoystarlord/go-migration-buddy/loader"
+	"github.com/ridoystarlord/migrato/diff"
+	"github.com/ridoystarlord/migrato/generator"
+	"github.com/ridoystarlord/migrato/introspect"
+	"github.com/ridoystarlord/migrato/loader"
 	"github.com/spf13/cobra"
 )
 

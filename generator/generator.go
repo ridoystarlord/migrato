@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ridoystarlord/go-migration-buddy/diff"
+	"github.com/ridoystarlord/migrato/diff"
 )
 
 // GenerateSQL converts a list of Operations into raw SQL statements.

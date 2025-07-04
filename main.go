@@ -1,6 +1,6 @@
 package main
 
-import "github.com/ridoystarlord/go-migration-buddy/cmd"
+import "github.com/ridoystarlord/migrato/cmd"
 
 func main() {
 	cmd.Execute()

@@ -1,4 +1,4 @@
-module github.com/ridoystarlord/go-migration-buddy
+module github.com/ridoystarlord/migrato
 
 go 1.24.4
 

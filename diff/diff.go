@@ -1,8 +1,8 @@
 package diff
 
 import (
-	"github.com/ridoystarlord/go-migration-buddy/introspect"
-	"github.com/ridoystarlord/go-migration-buddy/schema"
+	"github.com/ridoystarlord/migrato/introspect"
+	"github.com/ridoystarlord/migrato/schema"
 )
 
 type OperationType string

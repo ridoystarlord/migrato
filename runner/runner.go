@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ridoystarlord/go-migration-buddy/utils"
+	"github.com/ridoystarlord/migrato/utils"
 )
 
 func getConn() (*pgx.Conn, context.Context, error) {
