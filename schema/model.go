@@ -12,6 +12,7 @@ type Column struct {
 	Type     string
 	Primary  bool
 	Unique   bool
+	NotNull  bool
 	Default  *string
 	ForeignKey *ForeignKey
 	Index    *IndexConfig

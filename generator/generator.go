@@ -3,6 +3,7 @@ package generator
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ridoystarlord/migrato/diff"
@@ -27,6 +28,9 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 				op.Column.Name,
 				op.Column.Type,
 			)
+			if op.Column.NotNull {
+				stmt += " NOT NULL"
+			}
 			if op.Column.Default != nil {
 				stmt += fmt.Sprintf(" DEFAULT %s", *op.Column.Default)
 			}
@@ -39,6 +43,21 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s";`,
 				op.TableName,
 				op.ColumnName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.ModifyColumn:
+			stmt, err := generateModifyColumn(op)
+			if err != nil {
+				return nil, fmt.Errorf("generate MODIFY COLUMN: %v", err)
+			}
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.RenameColumn:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s";`,
+				op.TableName,
+				op.ColumnName,
+				op.NewColumnName,
 			)
 			sqlStatements = append(sqlStatements, stmt)
 
@@ -125,6 +144,25 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			)
 			sqlStatements = append(sqlStatements, stmt)
 
+		case diff.ModifyColumn:
+			// For rollback, we need to revert the column modifications
+			if op.OldColumn != nil {
+				stmt, err := generateModifyColumnRollback(op)
+				if err != nil {
+					return nil, fmt.Errorf("generate MODIFY COLUMN rollback: %v", err)
+				}
+				sqlStatements = append(sqlStatements, stmt)
+			}
+
+		case diff.RenameColumn:
+			// For rollback, rename back to original name
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s";`,
+				op.TableName,
+				op.NewColumnName,
+				op.ColumnName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
 		case diff.DropTable:
 			// For rollback, we need to recreate the table
 			// Note: This is simplified - we don't have the original table definition
@@ -193,6 +231,9 @@ func generateCreateTable(op diff.Operation) (string, error) {
 		if col.Unique {
 			stmt += " UNIQUE"
 		}
+		if col.NotNull {
+			stmt += " NOT NULL"
+		}
 		if col.Default != nil {
 			stmt += fmt.Sprintf(" DEFAULT %s", *col.Default)
 		}
@@ -239,6 +280,150 @@ func generateCreateIndex(op diff.Operation) (string, error) {
 	stmt += ");"
 
 	return stmt, nil
+}
+
+func generateModifyColumn(op diff.Operation) (string, error) {
+	if op.Column == nil || op.OldColumn == nil {
+		return "", fmt.Errorf("column or old column is nil")
+	}
+
+	var statements []string
+
+	// Type change
+	if !strings.EqualFold(op.OldColumn.DataType, op.Column.Type) {
+		stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" TYPE %s`,
+			op.TableName,
+			op.Column.Name,
+			op.Column.Type,
+		)
+		statements = append(statements, stmt)
+	}
+
+	// NOT NULL constraint change
+	oldNullable := op.OldColumn.IsNullable
+	newNullable := !op.Column.NotNull
+
+	if oldNullable != newNullable {
+		if newNullable {
+			// Remove NOT NULL constraint
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP NOT NULL`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		} else {
+			// Add NOT NULL constraint
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET NOT NULL`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		}
+	}
+
+	// Default value change
+	oldDefault := op.OldColumn.ColumnDefault
+	newDefault := op.Column.Default
+
+	if (oldDefault == nil && newDefault != nil) ||
+		(oldDefault != nil && newDefault == nil) ||
+		(oldDefault != nil && newDefault != nil && *oldDefault != *newDefault) {
+		
+		if newDefault == nil {
+			// Remove default
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP DEFAULT`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		} else {
+			// Set new default
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s`,
+				op.TableName,
+				op.Column.Name,
+				*newDefault,
+			)
+			statements = append(statements, stmt)
+		}
+	}
+
+	if len(statements) == 0 {
+		return "", fmt.Errorf("no modifications needed")
+	}
+
+	return strings.Join(statements, ";\n") + ";", nil
+}
+
+func generateModifyColumnRollback(op diff.Operation) (string, error) {
+	if op.Column == nil || op.OldColumn == nil {
+		return "", fmt.Errorf("column or old column is nil")
+	}
+
+	var statements []string
+
+	// Type change rollback
+	if !strings.EqualFold(op.OldColumn.DataType, op.Column.Type) {
+		stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" TYPE %s`,
+			op.TableName,
+			op.Column.Name,
+			op.OldColumn.DataType,
+		)
+		statements = append(statements, stmt)
+	}
+
+	// NOT NULL constraint change rollback
+	oldNullable := op.OldColumn.IsNullable
+	newNullable := !op.Column.NotNull
+
+	if oldNullable != newNullable {
+		if oldNullable {
+			// Remove NOT NULL constraint (rollback: add it back)
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP NOT NULL`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		} else {
+			// Add NOT NULL constraint (rollback: remove it)
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET NOT NULL`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		}
+	}
+
+	// Default value change rollback
+	oldDefault := op.OldColumn.ColumnDefault
+	newDefault := op.Column.Default
+
+	if (oldDefault == nil && newDefault != nil) ||
+		(oldDefault != nil && newDefault == nil) ||
+		(oldDefault != nil && newDefault != nil && *oldDefault != *newDefault) {
+		
+		if oldDefault == nil {
+			// Remove default (rollback: add it back)
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" DROP DEFAULT`,
+				op.TableName,
+				op.Column.Name,
+			)
+			statements = append(statements, stmt)
+		} else {
+			// Set old default (rollback: restore original)
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s`,
+				op.TableName,
+				op.Column.Name,
+				*oldDefault,
+			)
+			statements = append(statements, stmt)
+		}
+	}
+
+	if len(statements) == 0 {
+		return "", fmt.Errorf("no rollback modifications needed")
+	}
+
+	return strings.Join(statements, ";\n") + ";", nil
 }
 
 // WriteMigrationFile saves the SQL statements into a timestamped .sql file with up/down sections

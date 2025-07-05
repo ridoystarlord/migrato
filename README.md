@@ -11,9 +11,16 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - Apply and track migrations
 - **Migration rollbacks** with automatic rollback SQL generation
 - Support for creating, adding, and dropping tables and columns
+- **Column modifications**: Change column types, add/remove NOT NULL constraints, modify default values
+- **Column renaming**: Rename columns with proper rollback support
 - **Index management** with support for various index types
 - Foreign key relationships with configurable cascade options
 - Support for one-to-many, many-to-many, and one-to-one relationships
+- **Health checks**: Verify database connectivity and migration status
+- **Schema validation**: Validate schema syntax and relationships
+- **Issue detection**: Find and suggest fixes for schema issues
+- **Default values**: Support for literal values and functions
+- **Go struct generation**: Generate Go structs and repositories (experimental)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
 
@@ -135,9 +142,11 @@ tables:
       - name: email
         type: text
         unique: true
+        not_null: true
         index: true
       - name: name
         type: text
+        not_null: true
         index:
           name: idx_users_name
           type: btree
@@ -155,8 +164,10 @@ tables:
         primary: true
       - name: title
         type: text
+        not_null: true
       - name: content
         type: text
+        not_null: true
       - name: user_id
         type: integer
         foreign_key:
@@ -292,6 +303,79 @@ columns:
 
 > **Note**: For functions like `uuid_generate_v4()`, you may need to install the `uuid-ossp` extension in PostgreSQL first.
 
+### Column Modifications
+
+The tool supports modifying existing columns with automatic migration generation:
+
+#### Changing Column Types
+
+```yaml
+# Before
+columns:
+  - name: age
+    type: integer
+
+# After
+columns:
+  - name: age
+    type: bigint
+```
+
+#### Adding/Removing NOT NULL Constraints
+
+```yaml
+# Before
+columns:
+  - name: email
+    type: text
+
+# After - Add NOT NULL constraint
+columns:
+  - name: email
+    type: text
+    not_null: true
+
+# After - Remove NOT NULL constraint
+columns:
+  - name: email
+    type: text
+    not_null: false
+```
+
+#### Modifying Default Values
+
+```yaml
+# Before
+columns:
+  - name: status
+    type: text
+    default: 'active'
+
+# After
+columns:
+  - name: status
+    type: text
+    default: 'pending'
+```
+
+#### Column Renaming
+
+Column renaming is supported through the diff detection:
+
+```yaml
+# Before
+columns:
+  - name: user_name
+    type: text
+
+# After
+columns:
+  - name: full_name
+    type: text
+```
+
+> **Note**: Column modifications are detected automatically when you run `migrato generate`. The tool compares your schema with the existing database and generates the appropriate ALTER TABLE statements.
+
 ## How it works
 
 - Reads your schema YAML
@@ -300,6 +384,7 @@ columns:
 - Generates SQL for:
   - Creating new tables
   - Adding new columns
+  - Modifying existing columns (type, NOT NULL, default values)
   - Dropping existing columns
   - Dropping existing tables
 - **Automatically generates rollback SQL** for each migration

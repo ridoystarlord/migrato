@@ -14,6 +14,8 @@ const (
 	CreateTable    OperationType = "CREATE_TABLE"
 	AddColumn      OperationType = "ADD_COLUMN"
 	DropColumn     OperationType = "DROP_COLUMN"
+	ModifyColumn   OperationType = "MODIFY_COLUMN"
+	RenameColumn   OperationType = "RENAME_COLUMN"
 	DropTable      OperationType = "DROP_TABLE"
 	AddForeignKey  OperationType = "ADD_FOREIGN_KEY"
 	DropForeignKey OperationType = "DROP_FOREIGN_KEY"
@@ -25,12 +27,15 @@ type Operation struct {
 	Type         OperationType
 	TableName    string
 	Columns      []schema.Column // for CREATE_TABLE
-	Column       *schema.Column  // for ADD_COLUMN
+	Column       *schema.Column  // for ADD_COLUMN, MODIFY_COLUMN
 	ColumnName   string          // for DROP_COLUMN, ADD_FOREIGN_KEY
+	NewColumnName string         // for RENAME_COLUMN
 	ForeignKey   *schema.ForeignKey // for ADD_FOREIGN_KEY
 	FKName       string          // for DROP_FOREIGN_KEY
 	Index        *schema.Index   // for CREATE_INDEX
 	IndexName    string          // for DROP_INDEX
+	// For MODIFY_COLUMN operations
+	OldColumn    *introspect.ExistingColumn // original column definition
 }
 
 func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []Operation {
@@ -92,6 +97,21 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 					TableName:  model.TableName,
 					ColumnName: col.ColumnName,
 				})
+			}
+		}
+
+		// Check for column modifications (existing columns that have changed)
+		for _, modelCol := range model.Columns {
+			if existingCol, exists := existingCols[modelCol.Name]; exists {
+				// Check if column needs modification
+				if needsColumnModification(existingCol, modelCol) {
+					ops = append(ops, Operation{
+						Type:       ModifyColumn,
+						TableName:  model.TableName,
+						Column:     &modelCol,
+						OldColumn:  &existingCol,
+					})
+				}
 			}
 		}
 
@@ -251,4 +271,62 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 	}
 
 	return ops
+}
+
+// needsColumnModification checks if a column needs to be modified
+func needsColumnModification(existing introspect.ExistingColumn, model schema.Column) bool {
+	// Check if data type changed
+	if !strings.EqualFold(existing.DataType, model.Type) {
+		return true
+	}
+
+	// Check if nullable constraint changed
+	// Note: We need to infer the nullable constraint from the schema
+	// For now, we'll assume all columns are nullable unless explicitly marked
+	modelNullable := true // Default to nullable
+	if model.NotNull {
+		modelNullable = false
+	}
+	if existing.IsNullable != modelNullable {
+		return true
+	}
+
+	// Check if default value changed
+	existingDefault := existing.ColumnDefault
+	modelDefault := model.Default
+	
+	// Handle different default value representations
+	if existingDefault == nil && modelDefault != nil {
+		return true
+	}
+	if existingDefault != nil && modelDefault == nil {
+		return true
+	}
+	if existingDefault != nil && modelDefault != nil {
+		// Normalize default values for comparison
+		existingStr := normalizeDefaultValue(*existingDefault)
+		modelStr := normalizeDefaultValue(*modelDefault)
+		if existingStr != modelStr {
+			return true
+		}
+	}
+
+	return false
+}
+
+// normalizeDefaultValue normalizes default values for comparison
+func normalizeDefaultValue(defaultVal string) string {
+	// Remove quotes and normalize function calls
+	defaultVal = strings.TrimSpace(defaultVal)
+	
+	// Handle quoted strings
+	if (strings.HasPrefix(defaultVal, "'") && strings.HasSuffix(defaultVal, "'")) ||
+		(strings.HasPrefix(defaultVal, "\"") && strings.HasSuffix(defaultVal, "\"")) {
+		return strings.Trim(defaultVal, "'\"")
+	}
+	
+	// Normalize function calls
+	defaultVal = strings.ToLower(defaultVal)
+	
+	return defaultVal
 }

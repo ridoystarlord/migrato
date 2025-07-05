@@ -24,6 +24,7 @@ type yamlColumn struct {
 	Type        string         `yaml:"type"`
 	Primary     bool           `yaml:"primary"`
 	Unique      bool           `yaml:"unique"`
+	NotNull     bool           `yaml:"not_null"`
 	Default     *string        `yaml:"default"`
 	ForeignKey  *yamlForeignKey `yaml:"foreign_key,omitempty"`
 	Index       *yamlIndexConfig `yaml:"index,omitempty"`
@@ -84,6 +85,7 @@ func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
 				Type:    c.Type,
 				Primary: c.Primary,
 				Unique:  c.Unique,
+				NotNull: c.NotNull,
 				Default: c.Default,
 			}
 			

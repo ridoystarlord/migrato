@@ -25,9 +25,11 @@ tables:
       - name: email
         type: text
         unique: true
+        not_null: true
         index: true
       - name: name
         type: text
+        not_null: true
         index:
           name: idx_users_name
           type: btree
@@ -51,8 +53,10 @@ tables:
         primary: true
       - name: title
         type: text
+        not_null: true
       - name: content
         type: text
+        not_null: true
       - name: status
         type: text
         default: 'draft'
