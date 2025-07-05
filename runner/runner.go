@@ -563,7 +563,7 @@ func PreviewMigrations() error {
 		fmt.Println("\n-- Down Migration (Rollback) SQL --")
 		fmt.Println(downSQL)
 	}
-	fmt.Println("============================================================\n")
+	fmt.Println("============================================================")
 	fmt.Println("(Dry run only. No migrations were applied.)")
 	return nil
 }

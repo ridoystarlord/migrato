@@ -64,7 +64,7 @@ var generateCmd = &cobra.Command{
 			for _, stmt := range rollbackSqls {
 				fmt.Println(stmt)
 			}
-			fmt.Println("============================================================\n")
+			fmt.Println("============================================================")
 			fmt.Println("(Dry run only. No files were written.)")
 			return
 		}
