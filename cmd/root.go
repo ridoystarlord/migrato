@@ -39,4 +39,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(rollbackCmd)
 	rootCmd.AddCommand(generateStructsCmd)
+	rootCmd.AddCommand(healthCmd)
+	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(checkCmd)
 }

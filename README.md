@@ -116,6 +116,12 @@ go build -o migrato ./main.go
 - `migrato rollback` — Rollback migrations
   - `-s, --steps` — Number of migrations to rollback (default: 1)
 - `migrato status` — Show applied and pending migrations
+- `migrato health` — Check database connectivity
+  - `-t, --timeout` — Timeout for health check (default: 5s)
+- `migrato validate` — Validate schema integrity
+  - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+- `migrato check` — Check for potential issues
+  - `-f, --fix-suggestions` — Show suggestions for fixing issues
 
 ## Schema Example
 
@@ -327,6 +333,58 @@ type DB interface {
 Perfect for building your own ORM or integrating with any database driver!
 
 > **Note**: This feature is experimental. The primary focus is on the migration CLI functionality. We do not currently recommend using this feature in production.
+
+## Health Checks & Validation
+
+### Database Health Check
+
+Check if your database is accessible and properly configured:
+
+```sh
+migrato health                    # Basic health check
+migrato health --timeout 10s      # Custom timeout
+```
+
+This checks:
+
+- Database connectivity
+- Schema migrations table existence
+- Applied migration count
+
+### Schema Validation
+
+Validate your YAML schema for integrity and consistency:
+
+```sh
+migrato validate                  # Validate default schema.yaml
+migrato validate -f custom.yaml   # Validate custom schema file
+```
+
+This validates:
+
+- Duplicate table/column names
+- Primary key constraints
+- Foreign key references
+- Column types
+- Index definitions
+- Relationship definitions
+
+### Issue Detection
+
+Check for potential issues between your schema and database:
+
+```sh
+migrato check                     # Basic check
+migrato check --fix-suggestions   # Show detailed suggestions
+```
+
+This detects:
+
+- Orphaned tables/columns in database
+- Missing tables/columns from schema
+- Index mismatches
+- Foreign key constraint issues
+- Pending migrations
 
 ## Requirements
 
