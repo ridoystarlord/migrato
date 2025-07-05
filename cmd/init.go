@@ -24,11 +24,18 @@ var initCmd = &cobra.Command{
       - name: email
         type: text
         unique: true
+        index: true
       - name: name
         type: text
+        index:
+          name: idx_users_name
+          type: btree
       - name: created_at
         type: timestamp
         default: now()
+        index:
+          name: idx_users_created_at
+          type: btree
 
   - name: posts
     columns:
@@ -75,6 +82,10 @@ var initCmd = &cobra.Command{
           references_table: tags
           references_column: id
           on_delete: CASCADE
+    indexes:
+      - name: idx_post_tags_unique
+        columns: [post_id, tag_id]
+        unique: true
 `
 		err := os.WriteFile("schema.yaml", []byte(content), 0644)
 		if err != nil {

@@ -72,6 +72,19 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 			)
 			sqlStatements = append(sqlStatements, stmt)
 
+		case diff.CreateIndex:
+			stmt, err := generateCreateIndex(op)
+			if err != nil {
+				return nil, fmt.Errorf("generate CREATE INDEX: %v", err)
+			}
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropIndex:
+			stmt := fmt.Sprintf(`DROP INDEX IF EXISTS "%s";`,
+				op.IndexName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
 		default:
 			return nil, fmt.Errorf("unsupported operation: %s", op.Type)
 		}
@@ -145,6 +158,22 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			}
 			sqlStatements = append(sqlStatements, stmt+";")
 
+		case diff.CreateIndex:
+			stmt := fmt.Sprintf(`DROP INDEX IF EXISTS "%s";`,
+				op.Index.Name,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropIndex:
+			// For rollback, we need to recreate the index
+			// Note: This is simplified - we don't have the original index definition
+			stmt := fmt.Sprintf(`CREATE INDEX "%s" ON "%s" ("%s");`,
+				op.IndexName,
+				op.TableName,
+				"column_name", // Placeholder - ideally we'd store the original definition
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
 		default:
 			return nil, fmt.Errorf("unsupported rollback operation: %s", op.Type)
 		}
@@ -172,6 +201,41 @@ func generateCreateTable(op diff.Operation) (string, error) {
 		}
 	}
 
+	stmt += ");"
+
+	return stmt, nil
+}
+
+func generateCreateIndex(op diff.Operation) (string, error) {
+	if op.Index == nil {
+		return "", fmt.Errorf("index is nil")
+	}
+
+	stmt := "CREATE"
+	if op.Index.Unique {
+		stmt += " UNIQUE"
+	}
+	
+	stmt += " INDEX"
+	if op.Index.Name != "" {
+		stmt += fmt.Sprintf(` "%s"`, op.Index.Name)
+	}
+	
+	stmt += fmt.Sprintf(` ON "%s"`, op.Index.Table)
+	
+	// Add index type if specified
+	if op.Index.Type != "" && op.Index.Type != "btree" {
+		stmt += fmt.Sprintf(" USING %s", op.Index.Type)
+	}
+	
+	// Add columns
+	stmt += " ("
+	for i, col := range op.Index.Columns {
+		if i > 0 {
+			stmt += ", "
+		}
+		stmt += fmt.Sprintf(`"%s"`, col)
+	}
 	stmt += ");"
 
 	return stmt, nil

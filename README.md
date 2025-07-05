@@ -11,6 +11,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - Apply and track migrations
 - **Migration rollbacks** with automatic rollback SQL generation
 - Support for creating, adding, and dropping tables and columns
+- **Index management** with support for various index types
 - Foreign key relationships with configurable cascade options
 - Support for one-to-many, many-to-many, and one-to-one relationships
 - Simple CLI interface
@@ -124,11 +125,18 @@ tables:
       - name: email
         type: text
         unique: true
+        index: true
       - name: name
         type: text
+        index:
+          name: idx_users_name
+          type: btree
       - name: created_at
         type: timestamp
         default: now()
+        index:
+          name: idx_users_created_at
+          type: btree
 
   - name: posts
     columns:
@@ -175,6 +183,10 @@ tables:
           references_table: tags
           references_column: id
           on_delete: CASCADE
+    indexes:
+      - name: idx_post_tags_unique
+        columns: [post_id, tag_id]
+        unique: true
 ```
 
 ### Relationship Types
@@ -191,6 +203,47 @@ The tool supports different types of relationships:
 - `references_column`: The column being referenced (usually 'id')
 - `on_delete`: Action when referenced record is deleted (CASCADE, SET NULL, RESTRICT)
 - `on_update`: Action when referenced record is updated (CASCADE, SET NULL, RESTRICT)
+
+### Index Management
+
+The tool supports both column-level and table-level indexes:
+
+#### Column-Level Indexes
+
+```yaml
+columns:
+  - name: email
+    type: text
+    index: true # Simple index on the column
+
+  - name: name
+    type: text
+    index:
+      name: idx_users_name
+      type: btree
+      unique: false
+```
+
+#### Table-Level Indexes
+
+```yaml
+tables:
+  - name: post_tags
+    columns:
+      # ... columns
+    indexes:
+      - name: idx_post_tags_unique
+        columns: [post_id, tag_id]
+        unique: true
+        type: btree
+```
+
+#### Index Options
+
+- `name`: Custom index name (auto-generated if not provided)
+- `columns`: Array of column names for composite indexes
+- `unique`: Whether the index enforces uniqueness
+- `type`: Index type (btree, hash, gin, gist, etc.)
 
 ## How it works
 

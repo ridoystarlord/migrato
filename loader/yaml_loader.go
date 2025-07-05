@@ -16,6 +16,7 @@ type yamlTable struct {
 	Name      string         `yaml:"name"`
 	Columns   []yamlColumn   `yaml:"columns"`
 	Relations []yamlRelation `yaml:"relations,omitempty"`
+	Indexes   []yamlIndex    `yaml:"indexes,omitempty"`
 }
 
 type yamlColumn struct {
@@ -25,6 +26,14 @@ type yamlColumn struct {
 	Unique      bool           `yaml:"unique"`
 	Default     *string        `yaml:"default"`
 	ForeignKey  *yamlForeignKey `yaml:"foreign_key,omitempty"`
+	Index       *yamlIndexConfig `yaml:"index,omitempty"`
+}
+
+type yamlIndexConfig struct {
+	Name    string   `yaml:"name,omitempty"`
+	Columns []string `yaml:"columns,omitempty"`
+	Unique  bool     `yaml:"unique,omitempty"`
+	Type    string   `yaml:"type,omitempty"`
 }
 
 type yamlForeignKey struct {
@@ -42,6 +51,13 @@ type yamlRelation struct {
 	ToTable       string                    `yaml:"to_table"`
 	ToColumn      string                    `yaml:"to_column"`
 	JunctionTable string                    `yaml:"junction_table,omitempty"`
+}
+
+type yamlIndex struct {
+	Name    string   `yaml:"name"`
+	Columns []string `yaml:"columns"`
+	Unique  bool     `yaml:"unique,omitempty"`
+	Type    string   `yaml:"type,omitempty"`
 }
 
 func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
@@ -80,6 +96,16 @@ func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
 					OnUpdate:         c.ForeignKey.OnUpdate,
 				}
 			}
+
+			// Handle index
+			if c.Index != nil {
+				column.Index = &schema.IndexConfig{
+					Name:    c.Index.Name,
+					Columns: c.Index.Columns,
+					Unique:  c.Index.Unique,
+					Type:    c.Index.Type,
+				}
+			}
 			
 			model.Columns = append(model.Columns, column)
 		}
@@ -96,6 +122,18 @@ func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
 				JunctionTable: r.JunctionTable,
 			}
 			model.Relations = append(model.Relations, relation)
+		}
+
+		// Load indexes
+		for _, idx := range t.Indexes {
+			index := schema.Index{
+				Name:    idx.Name,
+				Table:   t.Name,
+				Columns: idx.Columns,
+				Unique:  idx.Unique,
+				Type:    idx.Type,
+			}
+			model.Indexes = append(model.Indexes, index)
 		}
 		
 		models = append(models, model)

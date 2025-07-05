@@ -1,6 +1,9 @@
 package diff
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/ridoystarlord/migrato/introspect"
 	"github.com/ridoystarlord/migrato/schema"
 )
@@ -14,6 +17,8 @@ const (
 	DropTable      OperationType = "DROP_TABLE"
 	AddForeignKey  OperationType = "ADD_FOREIGN_KEY"
 	DropForeignKey OperationType = "DROP_FOREIGN_KEY"
+	CreateIndex    OperationType = "CREATE_INDEX"
+	DropIndex      OperationType = "DROP_INDEX"
 )
 
 type Operation struct {
@@ -24,6 +29,8 @@ type Operation struct {
 	ColumnName   string          // for DROP_COLUMN, ADD_FOREIGN_KEY
 	ForeignKey   *schema.ForeignKey // for ADD_FOREIGN_KEY
 	FKName       string          // for DROP_FOREIGN_KEY
+	Index        *schema.Index   // for CREATE_INDEX
+	IndexName    string          // for DROP_INDEX
 }
 
 func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []Operation {
@@ -137,6 +144,97 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 					Type:    DropForeignKey,
 					TableName: model.TableName,
 					FKName:  fk.ConstraintName,
+				})
+			}
+		}
+
+		// Check for indexes to add
+		existingIndexes := map[string]introspect.ExistingIndex{}
+		for _, idx := range table.Indexes {
+			existingIndexes[idx.IndexName] = idx
+		}
+
+		// Check table-level indexes
+		for _, idx := range model.Indexes {
+			if _, exists := existingIndexes[idx.Name]; !exists {
+				ops = append(ops, Operation{
+					Type:      CreateIndex,
+					TableName: model.TableName,
+					Index:     &idx,
+				})
+			}
+		}
+
+		// Check column-level indexes
+		for _, col := range model.Columns {
+			if col.Index != nil {
+				indexName := col.Index.Name
+				if indexName == "" {
+					// Generate index name if not provided
+					if len(col.Index.Columns) > 0 {
+						indexName = fmt.Sprintf("idx_%s_%s", model.TableName, strings.Join(col.Index.Columns, "_"))
+					} else {
+						indexName = fmt.Sprintf("idx_%s_%s", model.TableName, col.Name)
+					}
+				}
+				
+				if _, exists := existingIndexes[indexName]; !exists {
+					// Create index operation
+					index := schema.Index{
+						Name:    indexName,
+						Table:   model.TableName,
+						Columns: col.Index.Columns,
+						Unique:  col.Index.Unique,
+						Type:    col.Index.Type,
+					}
+					if len(index.Columns) == 0 {
+						index.Columns = []string{col.Name}
+					}
+					
+					ops = append(ops, Operation{
+						Type:      CreateIndex,
+						TableName: model.TableName,
+						Index:     &index,
+					})
+				}
+			}
+		}
+
+		// Check for indexes to drop (in existing but not in model)
+		for _, idx := range table.Indexes {
+			found := false
+			// Check table-level indexes
+			for _, modelIdx := range model.Indexes {
+				if modelIdx.Name == idx.IndexName {
+					found = true
+					break
+				}
+			}
+			// Check column-level indexes
+			if !found {
+				for _, col := range model.Columns {
+					if col.Index != nil {
+						indexName := col.Index.Name
+						if indexName == "" {
+							if len(col.Index.Columns) > 0 {
+								indexName = fmt.Sprintf("idx_%s_%s", model.TableName, strings.Join(col.Index.Columns, "_"))
+							} else {
+								indexName = fmt.Sprintf("idx_%s_%s", model.TableName, col.Name)
+							}
+						}
+						if indexName == idx.IndexName {
+							found = true
+							break
+						}
+					}
+				}
+			}
+			
+			if !found {
+				ops = append(ops, Operation{
+					Type:      DropIndex,
+					TableName: model.TableName,
+					IndexName: idx.IndexName,
 				})
 			}
 		}

@@ -4,6 +4,7 @@ type Model struct {
 	TableName string
 	Columns   []Column
 	Relations []Relation
+	Indexes   []Index
 }
 
 type Column struct {
@@ -13,6 +14,14 @@ type Column struct {
 	Unique   bool
 	Default  *string
 	ForeignKey *ForeignKey
+	Index    *IndexConfig
+}
+
+type IndexConfig struct {
+	Name    string
+	Columns []string
+	Unique  bool
+	Type    string // btree, hash, gin, etc.
 }
 
 type ForeignKey struct {
@@ -40,3 +49,11 @@ const (
 	ManyToOne  RelationType = "many-to-one"
 	ManyToMany RelationType = "many-to-many"
 )
+
+type Index struct {
+	Name    string
+	Table   string
+	Columns []string
+	Unique  bool
+	Type    string // btree, hash, gin, etc.
+}

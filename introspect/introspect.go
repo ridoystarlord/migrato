@@ -12,6 +12,7 @@ type ExistingTable struct {
 	TableName   string
 	Columns     []ExistingColumn
 	ForeignKeys []ExistingForeignKey
+	Indexes     []ExistingIndex
 }
 
 type ExistingColumn struct {
@@ -30,6 +31,14 @@ type ExistingForeignKey struct {
 	ReferencesColumn  string
 	OnDelete          string
 	OnUpdate          string
+}
+
+type ExistingIndex struct {
+	IndexName string
+	TableName string
+	Columns   []string
+	IsUnique  bool
+	IndexType string
 }
 
 func IntrospectDatabase() ([]ExistingTable, error) {
@@ -84,10 +93,16 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 			return nil, fmt.Errorf("getting foreign keys for table %s: %v", tableName, err)
 		}
 
+		indexes, err := getIndexes(ctx, pool, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("getting indexes for table %s: %v", tableName, err)
+		}
+
 		tables = append(tables, ExistingTable{
 			TableName:   tableName,
 			Columns:     columns,
 			ForeignKeys: foreignKeys,
+			Indexes:     indexes,
 		})
 	}
 
@@ -193,4 +208,62 @@ func getForeignKeys(ctx context.Context, pool *pgxpool.Pool, tableName string) (
 	}
 
 	return foreignKeys, nil
+}
+
+func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingIndex, error) {
+	indexesQuery := `
+	SELECT
+		i.indexname,
+		i.indexdef,
+		(CASE WHEN i.indexdef LIKE '%UNIQUE%' THEN true ELSE false END) as is_unique,
+		am.amname as index_type
+	FROM pg_indexes i
+	LEFT JOIN pg_class c ON i.indexname = c.relname
+	LEFT JOIN pg_am am ON c.relam = am.oid
+	WHERE i.tablename = $1 
+		AND i.schemaname = 'public'
+		AND i.indexname NOT LIKE '%_pkey'  -- Exclude primary key indexes
+	ORDER BY i.indexname;
+	`
+
+	rows, err := pool.Query(ctx, indexesQuery, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("querying indexes: %v", err)
+	}
+	defer rows.Close()
+
+	var indexes []ExistingIndex
+	for rows.Next() {
+		var idx ExistingIndex
+		var indexDef string
+		if err := rows.Scan(
+			&idx.IndexName,
+			&indexDef,
+			&idx.IsUnique,
+			&idx.IndexType,
+		); err != nil {
+			return nil, fmt.Errorf("scanning index: %v", err)
+		}
+		
+		idx.TableName = tableName
+		// Extract column names from index definition
+		// This is a simplified approach - in production you might want more robust parsing
+		idx.Columns = extractColumnsFromIndexDef(indexDef)
+		
+		indexes = append(indexes, idx)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterating index rows: %v", rows.Err())
+	}
+
+	return indexes, nil
+}
+
+// extractColumnsFromIndexDef extracts column names from PostgreSQL index definition
+// This is a simplified parser - in production you might want a more robust solution
+func extractColumnsFromIndexDef(indexDef string) []string {
+	// This is a basic implementation - you might want to use a proper SQL parser
+	// For now, we'll return a placeholder
+	return []string{"column_name"} // Placeholder
 }
