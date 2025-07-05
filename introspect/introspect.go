@@ -14,12 +14,12 @@ type ExistingTable struct {
 }
 
 type ExistingColumn struct {
-	ColumnName   string
-	DataType     string
-	IsNullable   bool
+	ColumnName    string
+	DataType      string
+	IsNullable    bool
 	ColumnDefault *string
-	IsPrimaryKey bool
-	IsUnique     bool
+	IsPrimaryKey  bool
+	IsUnique      bool
 }
 
 func IntrospectDatabase() ([]ExistingTable, error) {
@@ -50,14 +50,24 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 	}
 	defer rows.Close()
 
-	var tables []ExistingTable
+	// Collect table names into a slice
+	var tableNames []string
 	for rows.Next() {
 		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("scanning table name: %v", err)
 		}
+		tableNames = append(tableNames, tableName)
+	}
 
-		// For each table, get columns
+	// Make sure any error from iteration is captured
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterating table rows: %v", rows.Err())
+	}
+
+	var tables []ExistingTable
+	// Now that rows are done, loop over table names
+	for _, tableName := range tableNames {
 		columns, err := getColumns(ctx, conn, tableName)
 		if err != nil {
 			return nil, fmt.Errorf("getting columns for table %s: %v", tableName, err)
@@ -112,6 +122,11 @@ func getColumns(ctx context.Context, conn *pgx.Conn, tableName string) ([]Existi
 		}
 		col.IsNullable = nullable
 		columns = append(columns, col)
+	}
+
+	// Make sure any error from iteration is captured
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterating column rows: %v", rows.Err())
 	}
 
 	return columns, nil
