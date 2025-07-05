@@ -2,16 +2,43 @@ package runner
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ridoystarlord/migrato/utils"
 )
+
+// MigrationRecord represents a migration execution record
+type MigrationRecord struct {
+	ID             int
+	MigrationName  string
+	ExecutedAt     time.Time
+	ExecutionTime  time.Duration
+	ExecutedBy     string
+	Status         string
+	ErrorMessage   string
+	Checksum       string
+	TableAffected  string
+}
+
+// MigrationLog represents a migration log entry
+type MigrationLog struct {
+	ID        int
+	Timestamp time.Time
+	Level     string
+	Message   string
+	User      string
+	Details   string
+	MigrationName string
+}
 
 func getConn() (*pgx.Conn, context.Context, error) {
 	utils.LoadEnv()
@@ -28,13 +55,58 @@ func getConn() (*pgx.Conn, context.Context, error) {
 }
 
 func ensureMigrationsTable(conn *pgx.Conn, ctx context.Context) error {
+	// Create enhanced migrations table with history tracking
 	_, err := conn.Exec(ctx, `
 	CREATE TABLE IF NOT EXISTS schema_migrations (
 		id SERIAL PRIMARY KEY,
 		filename TEXT NOT NULL UNIQUE,
-		applied_at TIMESTAMP DEFAULT now()
+		applied_at TIMESTAMP DEFAULT now(),
+		execution_time INTERVAL,
+		executed_by TEXT,
+		status TEXT DEFAULT 'success',
+		error_message TEXT,
+		checksum TEXT,
+		table_affected TEXT
 	);
 	`)
+	if err != nil {
+		return err
+	}
+
+	// Create migration logs table
+	_, err = conn.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS migration_logs (
+		id SERIAL PRIMARY KEY,
+		timestamp TIMESTAMP DEFAULT now(),
+		level TEXT NOT NULL,
+		message TEXT NOT NULL,
+		user_name TEXT,
+		details TEXT,
+		migration_name TEXT
+	);
+	`)
+	return err
+}
+
+func getCurrentUser() string {
+	currentUser, err := user.Current()
+	if err != nil {
+		return "unknown"
+	}
+	return currentUser.Username
+}
+
+func calculateChecksum(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", hash)
+}
+
+func logMigrationActivity(conn *pgx.Conn, ctx context.Context, level, message, migrationName, details string) error {
+	userName := getCurrentUser()
+	_, err := conn.Exec(ctx, `
+		INSERT INTO migration_logs (level, message, user_name, migration_name, details)
+		VALUES ($1, $2, $3, $4, $5)
+	`, level, message, userName, migrationName, details)
 	return err
 }
 
@@ -126,17 +198,49 @@ func parseMigrationFile(filename string) (string, string, error) {
 }
 
 func applyMigration(conn *pgx.Conn, ctx context.Context, filename string) error {
+	startTime := time.Now()
 	upSQL, _, err := parseMigrationFile(filename)
 	if err != nil {
 		return fmt.Errorf("parse migration file %s: %v", filename, err)
 	}
 
+	// Log migration start
+	logMigrationActivity(conn, ctx, "INFO", fmt.Sprintf("Starting migration: %s", filename), filename, "Migration execution started")
+
+	// Execute migration
 	_, err = conn.Exec(ctx, upSQL)
+	executionTime := time.Since(startTime)
+	
 	if err != nil {
+		// Log failure
+		logMigrationActivity(conn, ctx, "ERROR", fmt.Sprintf("Migration failed: %s", filename), filename, err.Error())
+		
+		// Record failed migration
+		checksum := calculateChecksum(upSQL)
+		userName := getCurrentUser()
+		_, insertErr := conn.Exec(ctx, `
+			INSERT INTO schema_migrations (filename, execution_time, executed_by, status, error_message, checksum)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, filename, executionTime, userName, "failed", err.Error(), checksum)
+		
+		if insertErr != nil {
+			return fmt.Errorf("recording failed migration %s: %v", filename, insertErr)
+		}
+		
 		return fmt.Errorf("executing migration %s: %v", filename, err)
 	}
 
-	_, err = conn.Exec(ctx, `INSERT INTO schema_migrations (filename) VALUES ($1);`, filename)
+	// Log success
+	logMigrationActivity(conn, ctx, "SUCCESS", fmt.Sprintf("Migration completed: %s", filename), filename, fmt.Sprintf("Execution time: %v", executionTime))
+
+	// Record successful migration
+	checksum := calculateChecksum(upSQL)
+	userName := getCurrentUser()
+	_, err = conn.Exec(ctx, `
+		INSERT INTO schema_migrations (filename, execution_time, executed_by, status, checksum)
+		VALUES ($1, $2, $3, $4, $5)
+	`, filename, executionTime, userName, "success", checksum)
+	
 	if err != nil {
 		return fmt.Errorf("recording migration %s: %v", filename, err)
 	}
@@ -145,16 +249,29 @@ func applyMigration(conn *pgx.Conn, ctx context.Context, filename string) error 
 }
 
 func rollbackMigration(conn *pgx.Conn, ctx context.Context, filename string) error {
+	startTime := time.Now()
 	_, downSQL, err := parseMigrationFile(filename)
 	if err != nil {
 		return fmt.Errorf("parse migration file %s: %v", filename, err)
 	}
 
+	// Log rollback start
+	logMigrationActivity(conn, ctx, "INFO", fmt.Sprintf("Starting rollback: %s", filename), filename, "Rollback execution started")
+
+	// Execute rollback
 	_, err = conn.Exec(ctx, downSQL)
+	executionTime := time.Since(startTime)
+	
 	if err != nil {
+		// Log failure
+		logMigrationActivity(conn, ctx, "ERROR", fmt.Sprintf("Rollback failed: %s", filename), filename, err.Error())
 		return fmt.Errorf("executing rollback for %s: %v", filename, err)
 	}
 
+	// Log success
+	logMigrationActivity(conn, ctx, "SUCCESS", fmt.Sprintf("Rollback completed: %s", filename), filename, fmt.Sprintf("Execution time: %v", executionTime))
+
+	// Remove migration record
 	_, err = conn.Exec(ctx, `DELETE FROM schema_migrations WHERE filename = $1;`, filename)
 	if err != nil {
 		return fmt.Errorf("removing migration record for %s: %v", filename, err)
@@ -290,5 +407,113 @@ func Status() ([]string, []string, error) {
 	}
 
 	return applied, pending, nil
+}
+
+// GetMigrationHistory retrieves migration history with optional filtering
+func GetMigrationHistory(conn *pgx.Conn, limit int, tableFilter string) ([]MigrationRecord, error) {
+	ctx := context.Background()
+	
+	query := `
+		SELECT id, filename, applied_at, execution_time, executed_by, 
+		       status, error_message, checksum, table_affected
+		FROM schema_migrations
+	`
+	
+	var args []interface{}
+	argCount := 0
+	
+	if tableFilter != "" {
+		argCount++
+		query += fmt.Sprintf(" WHERE table_affected ILIKE $%d", argCount)
+		args = append(args, "%"+tableFilter+"%")
+	}
+	
+	query += " ORDER BY applied_at DESC"
+	
+	if limit > 0 {
+		argCount++
+		query += fmt.Sprintf(" LIMIT $%d", argCount)
+		args = append(args, limit)
+	}
+	
+	rows, err := conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query migration history: %v", err)
+	}
+	defer rows.Close()
+
+	var records []MigrationRecord
+	for rows.Next() {
+		var record MigrationRecord
+		var executionTime *time.Duration
+		
+		err := rows.Scan(
+			&record.ID,
+			&record.MigrationName,
+			&record.ExecutedAt,
+			&executionTime,
+			&record.ExecutedBy,
+			&record.Status,
+			&record.ErrorMessage,
+			&record.Checksum,
+			&record.TableAffected,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan migration record: %v", err)
+		}
+		
+		if executionTime != nil {
+			record.ExecutionTime = *executionTime
+		}
+		
+		records = append(records, record)
+	}
+	
+	return records, nil
+}
+
+// GetMigrationLogs retrieves migration logs with optional limit
+func GetMigrationLogs(conn *pgx.Conn, limit int) ([]MigrationLog, error) {
+	ctx := context.Background()
+	
+	query := `
+		SELECT id, timestamp, level, message, user_name, details, migration_name
+		FROM migration_logs
+		ORDER BY timestamp DESC
+	`
+	
+	var args []interface{}
+	if limit > 0 {
+		query += " LIMIT $1"
+		args = append(args, limit)
+	}
+	
+	rows, err := conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query migration logs: %v", err)
+	}
+	defer rows.Close()
+
+	var logs []MigrationLog
+	for rows.Next() {
+		var log MigrationLog
+		
+		err := rows.Scan(
+			&log.ID,
+			&log.Timestamp,
+			&log.Level,
+			&log.Message,
+			&log.User,
+			&log.Details,
+			&log.MigrationName,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan migration log: %v", err)
+		}
+		
+		logs = append(logs, log)
+	}
+	
+	return logs, nil
 }
 

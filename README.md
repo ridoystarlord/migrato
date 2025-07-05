@@ -22,6 +22,8 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - **Default values**: Support for literal values and functions
 - **Visual schema diff**: Preview changes with color-coded tree format
 - **Schema documentation**: Generate ERD diagrams and API docs (PlantUML, Mermaid, Graphviz)
+- **Migration history**: Track execution times, users, and detailed migration records
+- **Migration logging**: Comprehensive activity logging with timestamps and user tracking
 - **Go struct generation**: Generate Go structs and repositories (experimental)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
@@ -138,6 +140,13 @@ go build -o migrato ./main.go
   - `-f, --format` — Output format (plantuml, mermaid, graphviz, api, all)
   - `-o, --output` — Output file or directory (default: format-specific filename)
   - `--file` — Schema file to use (default: `schema.yaml`)
+- `migrato history` — Show detailed migration history
+  - `-l, --limit` — Limit number of records to show (0 = all)
+  - `-t, --table` — Filter by table name
+  - `-d, --detailed` — Show detailed information
+- `migrato log` — Show recent migration activities
+  - `-l, --limit` — Limit number of log entries to show (default: 50)
+  - `-f, --follow` — Follow logs in real-time (future feature)
 
 ## Schema Example
 
@@ -537,6 +546,74 @@ Create a new user.
 ```
 
 ````
+
+### Migration History & Logging
+
+Track and audit your migration activities with comprehensive history and logging:
+
+#### Migration History
+
+View detailed migration records with execution times and user information:
+
+```sh
+migrato history                    # Show all migration history
+migrato history --limit 10         # Show last 10 migrations
+migrato history --table users      # Show migrations for specific table
+migrato history --detailed         # Show detailed information
+```
+
+**History Output Example:**
+```
+📋 Migration History
+============================================================
+ID   Status   Migration              Duration    User       Date
+1    ✅       20240101120000_init.sql 2.5s        john       2024-01-01 12:00
+2    ✅       20240101130000_users.sql 1.8s       jane       2024-01-01 13:00
+3    ❌       20240101140000_posts.sql 0.5s       john       2024-01-01 14:00
+
+📊 Summary: 3 total, 2 successful, 1 failed
+⏱️  Total execution time: 4.8s
+```
+
+#### Migration Logs
+
+View recent migration activities and logs:
+
+```sh
+migrato log                    # Show recent migration logs
+migrato log --limit 20         # Show last 20 log entries
+```
+
+**Log Output Example:**
+```
+📋 Recent Migration Activities
+============================================================
+
+1. ℹ️  [2024-01-01 12:00:05] Starting migration: 20240101120000_init.sql (by john)
+   📄 Details: Migration execution started
+
+2. ✅ [2024-01-01 12:00:07] Migration completed: 20240101120000_init.sql (by john)
+   📄 Details: Execution time: 2.5s
+
+3. ℹ️  [2024-01-01 13:00:10] Starting migration: 20240101130000_users.sql (by jane)
+   📄 Details: Migration execution started
+
+4. ✅ [2024-01-01 13:00:12] Migration completed: 20240101130000_users.sql (by jane)
+   📄 Details: Execution time: 1.8s
+
+------------------------------------------------------------
+📊 Showing 4 recent log entries
+```
+
+#### Enhanced Tracking Features
+
+- **Execution Time Tracking**: Monitor how long each migration takes
+- **User Tracking**: See who ran each migration
+- **Status Tracking**: Track successful, failed, and pending migrations
+- **Error Logging**: Detailed error messages for failed migrations
+- **Checksum Verification**: Ensure migration integrity
+- **Table Filtering**: Filter history by affected tables
+- **Detailed Views**: Comprehensive information for debugging
 
 ## How it works
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ridoystarlord/migrato/utils"
 )
@@ -107,6 +108,23 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 	}
 
 	return tables, nil
+}
+
+// Connect returns a database connection for use by other packages
+func Connect() (*pgx.Conn, error) {
+	utils.LoadEnv()
+	connStr := utils.GetDatabaseURL()
+	if connStr == "" {
+		return nil, fmt.Errorf("DATABASE_URL not set in environment")
+	}
+
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create connection: %v", err)
+	}
+	
+	return conn, nil
 }
 
 func getColumns(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingColumn, error) {
