@@ -82,6 +82,13 @@ func validateModel(model schema.Model, allModels []schema.Model) error {
 		if err := validateColumnType(col.Type); err != nil {
 			return fmt.Errorf("column '%s': %v", col.Name, err)
 		}
+
+		// Validate default value
+		if col.Default != nil {
+			if err := validateDefaultValue(*col.Default, col.Type); err != nil {
+				return fmt.Errorf("column '%s' default value: %v", col.Name, err)
+			}
+		}
 	}
 
 	// Check primary key constraints
@@ -252,6 +259,50 @@ func validateCascadeOption(option string) error {
 	}
 
 	return fmt.Errorf("invalid cascade option: %s (valid options: %v)", option, validOptions)
+}
+
+func validateDefaultValue(defaultVal string, columnType string) error {
+	// Check for common database functions
+	validFunctions := []string{
+		"now()", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP",
+		"uuid_generate_v4()", "gen_random_uuid()", "random()",
+		"true", "false", "0", "1",
+	}
+
+	for _, funcName := range validFunctions {
+		if defaultVal == funcName {
+			return nil
+		}
+	}
+
+	// Check for quoted strings (string literals)
+	if (defaultVal[0] == '\'' && defaultVal[len(defaultVal)-1] == '\'') ||
+		(defaultVal[0] == '"' && defaultVal[len(defaultVal)-1] == '"') {
+		return nil
+	}
+
+	// Check for numeric literals
+	if isNumericLiteral(defaultVal) {
+		return nil
+	}
+
+	// Check for boolean literals
+	if defaultVal == "true" || defaultVal == "false" {
+		return nil
+	}
+
+	return fmt.Errorf("invalid default value: %s (use quoted strings for text, numeric literals, or valid functions)", defaultVal)
+}
+
+func isNumericLiteral(val string) bool {
+	// Simple check for numeric literals
+	// This could be enhanced with more sophisticated parsing
+	for _, char := range val {
+		if (char < '0' || char > '9') && char != '.' && char != '-' {
+			return false
+		}
+	}
+	return len(val) > 0
 }
 
 func validateIndexType(indexType string) error {

@@ -255,6 +255,43 @@ tables:
 - `unique`: Whether the index enforces uniqueness
 - `type`: Index type (btree, hash, gin, gist, etc.)
 
+### Default Values
+
+You can specify default values for columns using the `default` property:
+
+```yaml
+columns:
+  - name: status
+    type: text
+    default: "active" # String literal
+
+  - name: created_at
+    type: timestamp
+    default: now() # Database function
+
+  - name: count
+    type: integer
+    default: 0 # Numeric literal
+
+  - name: is_active
+    type: boolean
+    default: true # Boolean literal
+
+  - name: user_id
+    type: uuid
+    default: uuid_generate_v4() # UUID function (requires extension)
+```
+
+#### Supported Default Value Types
+
+- **String literals**: `'active'`, `'default-value'`
+- **Numeric literals**: `0`, `1`, `42`
+- **Boolean literals**: `true`, `false`
+- **Database functions**: `now()`, `CURRENT_DATE`, `CURRENT_TIME`
+- **Custom functions**: `uuid_generate_v4()`, `gen_random_uuid()`
+
+> **Note**: For functions like `uuid_generate_v4()`, you may need to install the `uuid-ossp` extension in PostgreSQL first.
+
 ## How it works
 
 - Reads your schema YAML
