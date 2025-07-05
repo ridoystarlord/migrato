@@ -12,11 +12,12 @@ import (
 )
 
 var schemaFile string
+var dryRunGenerate bool
 
 func init() {
 	generateCmd.Flags().StringVarP(&schemaFile, "file", "f", "schema.yaml", "Schema YAML file to load")
+	generateCmd.Flags().BoolVar(&dryRunGenerate, "dry-run", false, "Preview the SQL that would be generated without writing files")
 }
-
 
 var generateCmd = &cobra.Command{
 	Use:   "generate",
@@ -51,6 +52,21 @@ var generateCmd = &cobra.Command{
 		if err != nil {
 			fmt.Println("❌ Generating rollback SQL:", err)
 			os.Exit(1)
+		}
+
+		if dryRunGenerate {
+			fmt.Println("\n================ DRY RUN: Migration Preview ================")
+			fmt.Println("-- Up Migration SQL --")
+			for _, stmt := range sqls {
+				fmt.Println(stmt)
+			}
+			fmt.Println("\n-- Down Migration (Rollback) SQL --")
+			for _, stmt := range rollbackSqls {
+				fmt.Println(stmt)
+			}
+			fmt.Println("============================================================\n")
+			fmt.Println("(Dry run only. No files were written.)")
+			return
 		}
 
 		filename, err := generator.WriteMigrationFile(sqls, rollbackSqls)

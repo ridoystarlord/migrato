@@ -517,3 +517,54 @@ func GetMigrationLogs(conn *pgx.Conn, limit int) ([]MigrationLog, error) {
 	return logs, nil
 }
 
+// PreviewMigrations prints the SQL of all pending migrations without applying them.
+func PreviewMigrations() error {
+	conn, ctx, err := getConn()
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	if err := ensureMigrationsTable(conn, ctx); err != nil {
+		return fmt.Errorf("ensure migrations table: %v", err)
+	}
+
+	applied, err := getAppliedMigrations(conn, ctx)
+	if err != nil {
+		return err
+	}
+
+	files, err := getMigrationFiles()
+	if err != nil {
+		return err
+	}
+
+	var pending []string
+	for _, f := range files {
+		if !applied[f] {
+			pending = append(pending, f)
+		}
+	}
+
+	if len(pending) == 0 {
+		fmt.Println("✅ No pending migrations.")
+		return nil
+	}
+
+	fmt.Println("\n================ DRY RUN: Migration Preview ================")
+	for _, f := range pending {
+		fmt.Printf("\n-- Migration: %s --\n", f)
+		upSQL, downSQL, err := parseMigrationFile(f)
+		if err != nil {
+			return fmt.Errorf("parse migration file %s: %v", f, err)
+		}
+		fmt.Println("-- Up Migration SQL --")
+		fmt.Println(upSQL)
+		fmt.Println("\n-- Down Migration (Rollback) SQL --")
+		fmt.Println(downSQL)
+	}
+	fmt.Println("============================================================\n")
+	fmt.Println("(Dry run only. No migrations were applied.)")
+	return nil
+}
+
