@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ridoystarlord/migrato/utils"
 )
 
@@ -30,13 +30,12 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 	}
 
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, connStr)
+	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to database: %v", err)
+		return nil, fmt.Errorf("unable to create connection pool: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer pool.Close()
 
-	// First, list all tables in public schema
 	tablesQuery := `
 	SELECT table_name
 	FROM information_schema.tables
@@ -44,13 +43,12 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 	ORDER BY table_name;
 	`
 
-	rows, err := conn.Query(ctx, tablesQuery)
+	rows, err := pool.Query(ctx, tablesQuery)
 	if err != nil {
 		return nil, fmt.Errorf("querying tables: %v", err)
 	}
 	defer rows.Close()
 
-	// Collect table names into a slice
 	var tableNames []string
 	for rows.Next() {
 		var tableName string
@@ -60,15 +58,13 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 		tableNames = append(tableNames, tableName)
 	}
 
-	// Make sure any error from iteration is captured
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("iterating table rows: %v", rows.Err())
 	}
 
 	var tables []ExistingTable
-	// Now that rows are done, loop over table names
 	for _, tableName := range tableNames {
-		columns, err := getColumns(ctx, conn, tableName)
+		columns, err := getColumns(ctx, pool, tableName)
 		if err != nil {
 			return nil, fmt.Errorf("getting columns for table %s: %v", tableName, err)
 		}
@@ -82,7 +78,7 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 	return tables, nil
 }
 
-func getColumns(ctx context.Context, conn *pgx.Conn, tableName string) ([]ExistingColumn, error) {
+func getColumns(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingColumn, error) {
 	columnsQuery := `
 	SELECT
 		c.column_name,
@@ -100,7 +96,7 @@ func getColumns(ctx context.Context, conn *pgx.Conn, tableName string) ([]Existi
 	ORDER BY c.ordinal_position;
 	`
 
-	rows, err := conn.Query(ctx, columnsQuery, tableName)
+	rows, err := pool.Query(ctx, columnsQuery, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("querying columns: %v", err)
 	}
@@ -124,7 +120,6 @@ func getColumns(ctx context.Context, conn *pgx.Conn, tableName string) ([]Existi
 		columns = append(columns, col)
 	}
 
-	// Make sure any error from iteration is captured
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("iterating column rows: %v", rows.Err())
 	}
