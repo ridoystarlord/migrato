@@ -108,7 +108,7 @@ go build -o migrato ./main.go
 - `migrato init` — Create an example `schema.yaml` file
 - `migrato generate` — Generate a migration file from your schema
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
-- `migrato generate-structs` — Generate Go structs and repositories from schema
+- `migrato generate-structs` — Generate Go structs and repositories from schema (Experimental)
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
   - `-o, --output` — Output directory for generated structs (default: `models`)
   - `-p, --package` — Package name for generated structs (default: `models`)
@@ -264,7 +264,7 @@ tables:
 - Applies migrations and tracks them in `schema_migrations` table
 - Supports rolling back migrations using the generated rollback SQL
 
-## Go Struct Generation
+## Go Struct Generation (Experimental)
 
 Generate type-safe Go structs and repositories from your schema:
 
@@ -325,6 +325,8 @@ type DB interface {
 ```
 
 Perfect for building your own ORM or integrating with any database driver!
+
+> **Note**: This feature is experimental. The primary focus is on the migration CLI functionality. We do not currently recommend using this feature in production.
 
 ## Requirements
 
