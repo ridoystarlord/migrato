@@ -42,4 +42,5 @@ func init() {
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(diffCmd)
 }

@@ -20,6 +20,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - **Schema validation**: Validate schema syntax and relationships
 - **Issue detection**: Find and suggest fixes for schema issues
 - **Default values**: Support for literal values and functions
+- **Visual schema diff**: Preview changes with color-coded tree format
 - **Go struct generation**: Generate Go structs and repositories (experimental)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
@@ -129,6 +130,9 @@ go build -o migrato ./main.go
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
 - `migrato check` — Check for potential issues
   - `-f, --fix-suggestions` — Show suggestions for fixing issues
+- `migrato diff` — Show differences between schema and database
+  - `-v, --visual` — Show changes in visual tree format with colors
+  - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
 
 ## Schema Example
 
@@ -375,6 +379,51 @@ columns:
 ```
 
 > **Note**: Column modifications are detected automatically when you run `migrato generate`. The tool compares your schema with the existing database and generates the appropriate ALTER TABLE statements.
+
+### Visual Schema Diff
+
+Preview your schema changes before generating migrations with the visual diff feature:
+
+```sh
+migrato diff                    # Show differences in text format
+migrato diff --visual          # Show differences in tree format with colors
+```
+
+#### Visual Diff Output Example
+
+```
+🌳 Schema Changes (Visual Diff)
+==================================================
+
+📋 Tables:
+  ➕ CREATE users
+  ⚡ MODIFY posts
+
+📝 Columns:
+  📋 users:
+    ➕ ADD email (text) NOT NULL
+    ➕ ADD name (text) NOT NULL DEFAULT 'John Doe'
+
+  📋 posts:
+    🔄 MODIFY title:
+      📊 TYPE: varchar → text
+      🚫 NOT NULL: ADDED
+
+🔍 Indexes:
+  📋 users:
+    ➕ CREATE INDEX idx_users_email
+
+🔗 Foreign Keys:
+  📋 posts:
+    ➕ ADD FK user_id → users.id
+```
+
+The visual diff uses color coding:
+
+- 🟢 **Green**: Additions (new tables, columns, indexes, foreign keys)
+- 🔴 **Red**: Deletions (dropped tables, columns, indexes, foreign keys)
+- 🔵 **Blue**: Modifications (column type changes, constraint changes)
+- 🟡 **Yellow**: Tables with modifications
 
 ## How it works
 
