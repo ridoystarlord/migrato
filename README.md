@@ -9,6 +9,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - Generate SQL migrations from a YAML schema
 - Introspect your existing PostgreSQL database
 - Apply and track migrations
+- **Migration rollbacks** with automatic rollback SQL generation
 - Support for creating, adding, and dropping tables and columns
 - Foreign key relationships with configurable cascade options
 - Support for one-to-many, many-to-many, and one-to-one relationships
@@ -89,9 +90,16 @@ go build -o migrato ./main.go
    ```
 
 6. **Check migration status**
+
    ```sh
    migrato status
    # Shows applied and pending migrations
+   ```
+
+7. **Rollback migrations (if needed)**
+   ```sh
+   migrato rollback        # Rollback the last migration
+   migrato rollback -s 3   # Rollback the last 3 migrations
    ```
 
 ## CLI Commands
@@ -100,6 +108,8 @@ go build -o migrato ./main.go
 - `migrato generate` — Generate a migration file from your schema
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
 - `migrato migrate` — Apply all pending migrations
+- `migrato rollback` — Rollback migrations
+  - `-s, --steps` — Number of migrations to rollback (default: 1)
 - `migrato status` — Show applied and pending migrations
 
 ## Schema Example
@@ -192,8 +202,10 @@ The tool supports different types of relationships:
   - Adding new columns
   - Dropping existing columns
   - Dropping existing tables
-- Writes migration files to `migrations/`
+- **Automatically generates rollback SQL** for each migration
+- Writes migration files to `migrations/` with up/down sections
 - Applies migrations and tracks them in `schema_migrations` table
+- Supports rolling back migrations using the generated rollback SQL
 
 ## Requirements
 

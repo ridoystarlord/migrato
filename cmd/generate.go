@@ -47,7 +47,13 @@ var generateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		filename, err := generator.WriteMigrationFile(sqls)
+		rollbackSqls, err := generator.GenerateRollbackSQL(ops)
+		if err != nil {
+			fmt.Println("❌ Generating rollback SQL:", err)
+			os.Exit(1)
+		}
+
+		filename, err := generator.WriteMigrationFile(sqls, rollbackSqls)
 		if err != nil {
 			fmt.Println("❌ Writing migration file:", err)
 			os.Exit(1)

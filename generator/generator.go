@@ -80,6 +80,79 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 	return sqlStatements, nil
 }
 
+// GenerateRollbackSQL converts a list of Operations into rollback SQL statements.
+func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
+	var sqlStatements []string
+
+	// Process operations in reverse order for rollback
+	for i := len(ops) - 1; i >= 0; i-- {
+		op := ops[i]
+		switch op.Type {
+		case diff.CreateTable:
+			stmt := fmt.Sprintf(`DROP TABLE IF EXISTS "%s";`,
+				op.TableName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.AddColumn:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s";`,
+				op.TableName,
+				op.Column.Name,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropColumn:
+			// For rollback, we need to recreate the column
+			// Note: This is simplified - we don't have the original column definition
+			// In a real implementation, you might want to store the original column definition
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s;`,
+				op.TableName,
+				op.ColumnName,
+				"text", // Default type - ideally we'd store the original type
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropTable:
+			// For rollback, we need to recreate the table
+			// Note: This is simplified - we don't have the original table definition
+			stmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (id serial PRIMARY KEY);`,
+				op.TableName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.AddForeignKey:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP CONSTRAINT "fk_%s_%s";`,
+				op.TableName,
+				op.TableName,
+				op.ForeignKey.ReferencesTable,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropForeignKey:
+			// For rollback, we need to recreate the foreign key
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY ("%s") REFERENCES "%s" ("%s")`,
+				op.TableName,
+				op.FKName,
+				op.ColumnName, // We need to store the column name in the operation
+				op.ForeignKey.ReferencesTable,
+				op.ForeignKey.ReferencesColumn,
+			)
+			if op.ForeignKey.OnDelete != "" {
+				stmt += fmt.Sprintf(" ON DELETE %s", op.ForeignKey.OnDelete)
+			}
+			if op.ForeignKey.OnUpdate != "" {
+				stmt += fmt.Sprintf(" ON UPDATE %s", op.ForeignKey.OnUpdate)
+			}
+			sqlStatements = append(sqlStatements, stmt+";")
+
+		default:
+			return nil, fmt.Errorf("unsupported rollback operation: %s", op.Type)
+		}
+	}
+
+	return sqlStatements, nil
+}
+
 func generateCreateTable(op diff.Operation) (string, error) {
 	stmt := fmt.Sprintf(`CREATE TABLE "%s" (`, op.TableName)
 
@@ -104,8 +177,8 @@ func generateCreateTable(op diff.Operation) (string, error) {
 	return stmt, nil
 }
 
-// WriteMigrationFile saves the SQL statements into a timestamped .sql file
-func WriteMigrationFile(sqlStatements []string) (string, error) {
+// WriteMigrationFile saves the SQL statements into a timestamped .sql file with up/down sections
+func WriteMigrationFile(sqlStatements []string, rollbackStatements []string) (string, error) {
 	// Ensure migrations folder exists
 	if _, err := os.Stat("migrations"); os.IsNotExist(err) {
 		err = os.Mkdir("migrations", 0755)
@@ -118,10 +191,21 @@ func WriteMigrationFile(sqlStatements []string) (string, error) {
 	timestamp := time.Now().Format("20060102150405")
 	filename := fmt.Sprintf("migrations/%s_migration.sql", timestamp)
 
-	// Join statements with newlines
-	content := ""
+	// Create content with up/down sections
+	content := "-- Migration: " + timestamp + "\n"
+	content += "-- Description: Auto-generated migration\n\n"
+	
+	// Up migration
+	content += "-- Up Migration\n"
+	content += "-- ============\n"
 	for _, stmt := range sqlStatements {
-		content += stmt + "\n\n"
+		content += stmt + "\n"
+	}
+	
+	content += "\n-- Down Migration (Rollback)\n"
+	content += "-- =======================\n"
+	for _, stmt := range rollbackStatements {
+		content += stmt + "\n"
 	}
 
 	// Write to file
