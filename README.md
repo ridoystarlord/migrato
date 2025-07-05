@@ -21,6 +21,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - **Issue detection**: Find and suggest fixes for schema issues
 - **Default values**: Support for literal values and functions
 - **Visual schema diff**: Preview changes with color-coded tree format
+- **Schema documentation**: Generate ERD diagrams and API docs (PlantUML, Mermaid, Graphviz)
 - **Go struct generation**: Generate Go structs and repositories (experimental)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
@@ -133,6 +134,10 @@ go build -o migrato ./main.go
 - `migrato diff` — Show differences between schema and database
   - `-v, --visual` — Show changes in visual tree format with colors
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+- `migrato docs` — Generate documentation from schema
+  - `-f, --format` — Output format (plantuml, mermaid, graphviz, api, all)
+  - `-o, --output` — Output file or directory (default: format-specific filename)
+  - `--file` — Schema file to use (default: `schema.yaml`)
 
 ## Schema Example
 
@@ -425,6 +430,114 @@ The visual diff uses color coding:
 - 🔵 **Blue**: Modifications (column type changes, constraint changes)
 - 🟡 **Yellow**: Tables with modifications
 
+### Schema Documentation Generation
+
+Generate comprehensive documentation from your schema including ERD diagrams and API documentation:
+
+```sh
+migrato docs --format plantuml --output erd.puml
+migrato docs --format mermaid --output erd.md
+migrato docs --format graphviz --output erd.dot
+migrato docs --format api --output api.md
+migrato docs --format all --output docs/
+```
+
+#### Supported Formats
+
+1. **PlantUML** (`.puml`) - Entity Relationship Diagrams
+
+   - Professional ERD diagrams
+   - Shows primary keys, unique constraints, NOT NULL constraints
+   - Displays foreign key relationships
+   - Can be rendered with PlantUML tools
+
+2. **Mermaid** (`.md`) - Markdown-compatible diagrams
+
+   - Works with GitHub, GitLab, and other markdown renderers
+   - Interactive diagrams in documentation
+   - Shows table relationships clearly
+
+3. **Graphviz** (`.dot`) - DOT format diagrams
+
+   - Can be rendered with Graphviz tools
+   - Customizable styling and layout
+   - Professional diagram output
+
+4. **API Documentation** (`.md`) - REST API docs
+   - Complete CRUD endpoint documentation
+   - Request/response examples
+   - Field descriptions and constraints
+   - Ready-to-use API documentation
+
+#### Example PlantUML Output
+
+```plantuml
+@startuml
+!theme plain
+skinparam linetype ortho
+
+entity "users" {
+  id : INTEGER <<PK>>
+  email : TEXT <<UQ>> <<NN>>
+  name : TEXT <<NN>> <<DEFAULT: John Doe>>
+  age : INTEGER <<DEFAULT: 25>>
+  created_at : TIMESTAMP <<DEFAULT: now()>>
+}
+
+entity "posts" {
+  id : INTEGER <<PK>>
+  title : TEXT <<NN>>
+  content : TEXT <<NN>>
+  user_id : INTEGER
+  created_at : TIMESTAMP <<DEFAULT: now()>>
+}
+
+"users" ||--o{ "posts" : "user_id"
+@enduml
+```
+
+#### Example API Documentation Output
+
+````markdown
+# REST API Documentation
+
+## Users
+
+### GET /users
+
+Retrieve all users.
+
+**Response:**
+
+```json
+[
+  {
+    "id": 1,
+    "email": "user@example.com",
+    "name": "John Doe",
+    "age": 25,
+    "created_at": "2024-01-01T00:00:00Z"
+  }
+]
+```
+````
+
+### POST /users
+
+Create a new user.
+
+**Request Body:**
+
+```json
+{
+  "email": "user@example.com",
+  "name": "John Doe",
+  "age": 25
+}
+```
+
+````
+
 ## How it works
 
 - Reads your schema YAML
@@ -447,7 +560,7 @@ Generate type-safe Go structs and repositories from your schema:
 
 ```sh
 migrato generate-structs
-```
+````
 
 This creates a clean, modular structure:
 

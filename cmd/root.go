@@ -43,4 +43,5 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(diffCmd)
+	rootCmd.AddCommand(docsCmd)
 }
