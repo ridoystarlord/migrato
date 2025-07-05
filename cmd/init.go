@@ -16,13 +16,65 @@ var initCmd = &cobra.Command{
 			return
 		}
 		content := `tables:
-  - name: example_table
+  - name: users
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: email
+        type: text
+        unique: true
+      - name: name
+        type: text
+      - name: created_at
+        type: timestamp
+        default: now()
+
+  - name: posts
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: title
+        type: text
+      - name: content
+        type: text
+      - name: user_id
+        type: integer
+        foreign_key:
+          references_table: users
+          references_column: id
+          on_delete: CASCADE
+      - name: created_at
+        type: timestamp
+        default: now()
+
+  - name: tags
     columns:
       - name: id
         type: serial
         primary: true
       - name: name
         type: text
+        unique: true
+
+  - name: post_tags
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: post_id
+        type: integer
+        foreign_key:
+          references_table: posts
+          references_column: id
+          on_delete: CASCADE
+      - name: tag_id
+        type: integer
+        foreign_key:
+          references_table: tags
+          references_column: id
+          on_delete: CASCADE
 `
 		err := os.WriteFile("schema.yaml", []byte(content), 0644)
 		if err != nil {

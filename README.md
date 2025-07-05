@@ -9,6 +9,9 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - Generate SQL migrations from a YAML schema
 - Introspect your existing PostgreSQL database
 - Apply and track migrations
+- Support for creating, adding, and dropping tables and columns
+- Foreign key relationships with configurable cascade options
+- Support for one-to-many, many-to-many, and one-to-one relationships
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
 
@@ -111,17 +114,84 @@ tables:
       - name: email
         type: text
         unique: true
+      - name: name
+        type: text
       - name: created_at
         type: timestamp
         default: now()
+
+  - name: posts
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: title
+        type: text
+      - name: content
+        type: text
+      - name: user_id
+        type: integer
+        foreign_key:
+          references_table: users
+          references_column: id
+          on_delete: CASCADE
+      - name: created_at
+        type: timestamp
+        default: now()
+
+  - name: tags
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: name
+        type: text
+        unique: true
+
+  - name: post_tags
+    columns:
+      - name: id
+        type: serial
+        primary: true
+      - name: post_id
+        type: integer
+        foreign_key:
+          references_table: posts
+          references_column: id
+          on_delete: CASCADE
+      - name: tag_id
+        type: integer
+        foreign_key:
+          references_table: tags
+          references_column: id
+          on_delete: CASCADE
 ```
+
+### Relationship Types
+
+The tool supports different types of relationships:
+
+1. **One-to-Many**: A user can have many posts (user_id in posts table)
+2. **Many-to-Many**: Posts can have many tags and tags can have many posts (via post_tags junction table)
+3. **One-to-One**: Can be implemented with a unique foreign key
+
+### Foreign Key Options
+
+- `references_table`: The table being referenced
+- `references_column`: The column being referenced (usually 'id')
+- `on_delete`: Action when referenced record is deleted (CASCADE, SET NULL, RESTRICT)
+- `on_update`: Action when referenced record is updated (CASCADE, SET NULL, RESTRICT)
 
 ## How it works
 
 - Reads your schema YAML
 - Introspects the current database
 - Diffs schema vs. database
-- Generates SQL for new tables/columns
+- Generates SQL for:
+  - Creating new tables
+  - Adding new columns
+  - Dropping existing columns
+  - Dropping existing tables
 - Writes migration files to `migrations/`
 - Applies migrations and tracks them in `schema_migrations` table
 

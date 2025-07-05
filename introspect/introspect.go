@@ -9,8 +9,9 @@ import (
 )
 
 type ExistingTable struct {
-	TableName string
-	Columns   []ExistingColumn
+	TableName   string
+	Columns     []ExistingColumn
+	ForeignKeys []ExistingForeignKey
 }
 
 type ExistingColumn struct {
@@ -20,6 +21,15 @@ type ExistingColumn struct {
 	ColumnDefault *string
 	IsPrimaryKey  bool
 	IsUnique      bool
+}
+
+type ExistingForeignKey struct {
+	ConstraintName    string
+	ColumnName        string
+	ReferencesTable   string
+	ReferencesColumn  string
+	OnDelete          string
+	OnUpdate          string
 }
 
 func IntrospectDatabase() ([]ExistingTable, error) {
@@ -69,9 +79,15 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 			return nil, fmt.Errorf("getting columns for table %s: %v", tableName, err)
 		}
 
+		foreignKeys, err := getForeignKeys(ctx, pool, tableName)
+		if err != nil {
+			return nil, fmt.Errorf("getting foreign keys for table %s: %v", tableName, err)
+		}
+
 		tables = append(tables, ExistingTable{
-			TableName: tableName,
-			Columns:   columns,
+			TableName:   tableName,
+			Columns:     columns,
+			ForeignKeys: foreignKeys,
 		})
 	}
 
@@ -125,4 +141,56 @@ func getColumns(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	}
 
 	return columns, nil
+}
+
+func getForeignKeys(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingForeignKey, error) {
+	foreignKeysQuery := `
+	SELECT
+		tc.constraint_name,
+		kcu.column_name,
+		ccu.table_name AS foreign_table_name,
+		ccu.column_name AS foreign_column_name,
+		rc.delete_rule,
+		rc.update_rule
+	FROM information_schema.table_constraints AS tc
+	JOIN information_schema.key_column_usage AS kcu
+		ON tc.constraint_name = kcu.constraint_name
+		AND tc.table_schema = kcu.table_schema
+	JOIN information_schema.constraint_column_usage AS ccu
+		ON ccu.constraint_name = tc.constraint_name
+		AND ccu.table_schema = tc.table_schema
+	LEFT JOIN information_schema.referential_constraints AS rc
+		ON tc.constraint_name = rc.constraint_name
+	WHERE tc.constraint_type = 'FOREIGN KEY' 
+		AND tc.table_schema = 'public'
+		AND tc.table_name = $1;
+	`
+
+	rows, err := pool.Query(ctx, foreignKeysQuery, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("querying foreign keys: %v", err)
+	}
+	defer rows.Close()
+
+	var foreignKeys []ExistingForeignKey
+	for rows.Next() {
+		var fk ExistingForeignKey
+		if err := rows.Scan(
+			&fk.ConstraintName,
+			&fk.ColumnName,
+			&fk.ReferencesTable,
+			&fk.ReferencesColumn,
+			&fk.OnDelete,
+			&fk.OnUpdate,
+		); err != nil {
+			return nil, fmt.Errorf("scanning foreign key: %v", err)
+		}
+		foreignKeys = append(foreignKeys, fk)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("iterating foreign key rows: %v", rows.Err())
+	}
+
+	return foreignKeys, nil
 }

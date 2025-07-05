@@ -13,16 +13,35 @@ type yamlFile struct {
 }
 
 type yamlTable struct {
-	Name    string       `yaml:"name"`
-	Columns []yamlColumn `yaml:"columns"`
+	Name      string         `yaml:"name"`
+	Columns   []yamlColumn   `yaml:"columns"`
+	Relations []yamlRelation `yaml:"relations,omitempty"`
 }
 
 type yamlColumn struct {
-	Name     string  `yaml:"name"`
-	Type     string  `yaml:"type"`
-	Primary  bool    `yaml:"primary"`
-	Unique   bool    `yaml:"unique"`
-	Default  *string `yaml:"default"`
+	Name        string         `yaml:"name"`
+	Type        string         `yaml:"type"`
+	Primary     bool           `yaml:"primary"`
+	Unique      bool           `yaml:"unique"`
+	Default     *string        `yaml:"default"`
+	ForeignKey  *yamlForeignKey `yaml:"foreign_key,omitempty"`
+}
+
+type yamlForeignKey struct {
+	ReferencesTable  string `yaml:"references_table"`
+	ReferencesColumn string `yaml:"references_column"`
+	OnDelete         string `yaml:"on_delete,omitempty"`
+	OnUpdate         string `yaml:"on_update,omitempty"`
+}
+
+type yamlRelation struct {
+	Name          string                    `yaml:"name"`
+	Type          string                    `yaml:"type"`
+	FromTable     string                    `yaml:"from_table"`
+	FromColumn    string                    `yaml:"from_column"`
+	ToTable       string                    `yaml:"to_table"`
+	ToColumn      string                    `yaml:"to_column"`
+	JunctionTable string                    `yaml:"junction_table,omitempty"`
 }
 
 func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
@@ -41,15 +60,44 @@ func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
 		model := schema.Model{
 			TableName: t.Name,
 		}
+		
+		// Load columns
 		for _, c := range t.Columns {
-			model.Columns = append(model.Columns, schema.Column{
+			column := schema.Column{
 				Name:    c.Name,
 				Type:    c.Type,
 				Primary: c.Primary,
 				Unique:  c.Unique,
 				Default: c.Default,
-			})
+			}
+			
+			// Handle foreign key
+			if c.ForeignKey != nil {
+				column.ForeignKey = &schema.ForeignKey{
+					ReferencesTable:  c.ForeignKey.ReferencesTable,
+					ReferencesColumn: c.ForeignKey.ReferencesColumn,
+					OnDelete:         c.ForeignKey.OnDelete,
+					OnUpdate:         c.ForeignKey.OnUpdate,
+				}
+			}
+			
+			model.Columns = append(model.Columns, column)
 		}
+		
+		// Load relations
+		for _, r := range t.Relations {
+			relation := schema.Relation{
+				Name:          r.Name,
+				Type:          schema.RelationType(r.Type),
+				FromTable:     r.FromTable,
+				FromColumn:    r.FromColumn,
+				ToTable:       r.ToTable,
+				ToColumn:      r.ToColumn,
+				JunctionTable: r.JunctionTable,
+			}
+			model.Relations = append(model.Relations, relation)
+		}
+		
 		models = append(models, model)
 	}
 

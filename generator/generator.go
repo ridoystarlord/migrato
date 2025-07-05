@@ -35,6 +35,43 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 			}
 			sqlStatements = append(sqlStatements, stmt+";")
 
+		case diff.DropColumn:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s";`,
+				op.TableName,
+				op.ColumnName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.DropTable:
+			stmt := fmt.Sprintf(`DROP TABLE IF EXISTS "%s";`,
+				op.TableName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
+		case diff.AddForeignKey:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD CONSTRAINT "fk_%s_%s" FOREIGN KEY ("%s") REFERENCES "%s" ("%s")`,
+				op.TableName,
+				op.TableName,
+				op.ForeignKey.ReferencesTable,
+				op.ColumnName,
+				op.ForeignKey.ReferencesTable,
+				op.ForeignKey.ReferencesColumn,
+			)
+			if op.ForeignKey.OnDelete != "" {
+				stmt += fmt.Sprintf(" ON DELETE %s", op.ForeignKey.OnDelete)
+			}
+			if op.ForeignKey.OnUpdate != "" {
+				stmt += fmt.Sprintf(" ON UPDATE %s", op.ForeignKey.OnUpdate)
+			}
+			sqlStatements = append(sqlStatements, stmt+";")
+
+		case diff.DropForeignKey:
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP CONSTRAINT "%s";`,
+				op.TableName,
+				op.FKName,
+			)
+			sqlStatements = append(sqlStatements, stmt)
+
 		default:
 			return nil, fmt.Errorf("unsupported operation: %s", op.Type)
 		}
