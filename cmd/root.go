@@ -38,4 +38,5 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(rollbackCmd)
+	rootCmd.AddCommand(generateStructsCmd)
 }

@@ -108,6 +108,10 @@ go build -o migrato ./main.go
 - `migrato init` — Create an example `schema.yaml` file
 - `migrato generate` — Generate a migration file from your schema
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+- `migrato generate-structs` — Generate Go structs and repositories from schema
+  - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+  - `-o, --output` — Output directory for generated structs (default: `models`)
+  - `-p, --package` — Package name for generated structs (default: `models`)
 - `migrato migrate` — Apply all pending migrations
 - `migrato rollback` — Rollback migrations
   - `-s, --steps` — Number of migrations to rollback (default: 1)
@@ -259,6 +263,68 @@ tables:
 - Writes migration files to `migrations/` with up/down sections
 - Applies migrations and tracks them in `schema_migrations` table
 - Supports rolling back migrations using the generated rollback SQL
+
+## Go Struct Generation
+
+Generate type-safe Go structs and repositories from your schema:
+
+```sh
+migrato generate-structs
+```
+
+This creates a clean, modular structure:
+
+- **models/** - Individual model files (user.go, post.go, etc.)
+- **repositories/** - Repository implementations (user_repository.go, post_repository.go, etc.)
+- **models/db.go** - Database interface definition
+
+### Generated Structure
+
+```
+models/
+├── models/
+│   ├── user.go
+│   ├── post.go
+│   └── db.go
+└── repositories/
+    ├── user_repository.go
+    └── post_repository.go
+```
+
+### Example Generated Code
+
+```go
+// models/user.go
+type User struct {
+	ID    int    `db:"id" json:"id" migrato:"primary"`
+	Email string `db:"email" json:"email" migrato:"unique"`
+	Name  string `db:"name" json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// repositories/user_repository.go
+type UserRepository struct {
+	db *DB
+}
+
+func (r *UserRepository) Create(user *User) error {
+	return r.db.Create(user).Error
+}
+
+// models/db.go
+type DB interface {
+	Create(value interface{}) *DB
+	Where(query interface{}, args ...interface{}) *DB
+	Find(dest interface{}) *DB
+	First(dest interface{}) *DB
+	Save(value interface{}) *DB
+	Delete(value interface{}) *DB
+	Error() error
+}
+```
+
+Perfect for building your own ORM or integrating with any database driver!
 
 ## Requirements
 
