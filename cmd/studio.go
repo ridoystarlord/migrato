@@ -389,6 +389,70 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
         body.light-mode .border-slate-700 {
             border-color: #e2e8f0;
         }
+        
+        /* Button and interactive element overrides */
+        body.light-mode button {
+            color: #1e293b;
+        }
+        
+        body.light-mode button:hover {
+            background-color: #e2e8f0;
+        }
+        
+        body.light-mode .hover\:text-white:hover {
+            color: #1e293b;
+        }
+        
+        body.light-mode .hover\:bg-slate-700:hover {
+            background-color: #e2e8f0;
+        }
+        
+        /* Sidebar table item highlights */
+        body.light-mode .table-item {
+            color: #475569;
+        }
+        
+        body.light-mode .table-item:hover {
+            background-color: #e2e8f0;
+            color: #1e293b;
+        }
+        
+        body.light-mode .table-item.bg-blue-600 {
+            background-color: #3b82f6;
+            color: #ffffff;
+        }
+        
+        body.light-mode .table-item.bg-blue-600:hover {
+            background-color: #2563eb;
+            color: #ffffff;
+        }
+        
+        /* Pagination button overrides */
+        body.light-mode .pagination-container button {
+            background-color: #ffffff;
+            border-color: #cbd5e1;
+            color: #475569;
+        }
+        
+        body.light-mode .pagination-container button:hover:not(:disabled) {
+            background-color: #e2e8f0;
+            color: #1e293b;
+        }
+        
+        body.light-mode .pagination-container button:disabled {
+            opacity: 0.5;
+            color: #94a3b8;
+        }
+        
+        /* Delete button override */
+        body.light-mode #deleteSelectedBtn {
+            background-color: #dc2626;
+            color: #ffffff;
+        }
+        
+        body.light-mode #deleteSelectedBtn:hover {
+            background-color: #b91c1c;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white h-screen overflow-hidden">
