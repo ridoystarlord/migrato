@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/ridoystarlord/migrato/introspect"
@@ -46,6 +45,10 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 	modelTableMap := map[string]schema.Model{}
 	
 	for _, t := range existing {
+		// Skip system tables
+		if t.TableName == "schema_migrations" || t.TableName == "migration_logs" {
+			continue
+		}
 		existingTableMap[t.TableName] = t
 	}
 	
@@ -66,7 +69,7 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			continue
 		}
 
-		// Table exists: check for missing columns and extra columns
+		// Table exists: check for missing columns and safe modifications
 		existingCols := map[string]introspect.ExistingColumn{}
 		modelCols := map[string]schema.Column{}
 		
@@ -78,7 +81,7 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			modelCols[c.Name] = c
 		}
 
-		// Check for columns to add (in model but not in existing)
+		// Check for columns to add (in model but not in existing) - SAFE
 		for _, col := range model.Columns {
 			if _, exists := existingCols[col.Name]; !exists {
 				ops = append(ops, Operation{
@@ -89,7 +92,7 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			}
 		}
 
-		// Check for columns to drop (in existing but not in model)
+		// Check for columns to drop (in existing but not in model) - DESTRUCTIVE
 		for _, col := range table.Columns {
 			if _, exists := modelCols[col.ColumnName]; !exists {
 				ops = append(ops, Operation{
@@ -100,11 +103,11 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			}
 		}
 
-		// Check for column modifications (existing columns that have changed)
+		// Check for column modifications - be very conservative
 		for _, modelCol := range model.Columns {
 			if existingCol, exists := existingCols[modelCol.Name]; exists {
-				// Check if column needs modification
-				if needsColumnModification(existingCol, modelCol) {
+				// Only modify if it's a significant change
+				if needsSignificantColumnModification(existingCol, modelCol) {
 					ops = append(ops, Operation{
 						Type:       ModifyColumn,
 						TableName:  model.TableName,
@@ -115,7 +118,7 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			}
 		}
 
-		// Check for foreign keys to add
+		// Check for foreign keys to add - SAFE
 		existingFKs := map[string]introspect.ExistingForeignKey{}
 		for _, fk := range table.ForeignKeys {
 			existingFKs[fk.ColumnName] = fk
@@ -123,8 +126,7 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 
 		for _, col := range model.Columns {
 			if col.ForeignKey != nil {
-				existingFK, exists := existingFKs[col.Name]
-				if !exists {
+				if _, exists := existingFKs[col.Name]; !exists {
 					// Foreign key doesn't exist: ADD FOREIGN KEY
 					ops = append(ops, Operation{
 						Type:        AddForeignKey,
@@ -132,43 +134,11 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 						ColumnName:  col.Name,
 						ForeignKey:  col.ForeignKey,
 					})
-				} else {
-					// Check if foreign key definition changed
-					if existingFK.ReferencesTable != col.ForeignKey.ReferencesTable ||
-						existingFK.ReferencesColumn != col.ForeignKey.ReferencesColumn ||
-						existingFK.OnDelete != col.ForeignKey.OnDelete ||
-						existingFK.OnUpdate != col.ForeignKey.OnUpdate {
-						
-						// Drop existing foreign key and add new one
-						ops = append(ops, Operation{
-							Type:    DropForeignKey,
-							TableName: model.TableName,
-							FKName:  existingFK.ConstraintName,
-						})
-						ops = append(ops, Operation{
-							Type:        AddForeignKey,
-							TableName:   model.TableName,
-							ColumnName:  col.Name,
-							ForeignKey:  col.ForeignKey,
-						})
-					}
 				}
 			}
 		}
 
-		// Check for foreign keys to drop (in existing but not in model)
-		for _, fk := range table.ForeignKeys {
-			col, exists := modelCols[fk.ColumnName]
-			if !exists || col.ForeignKey == nil {
-				ops = append(ops, Operation{
-					Type:    DropForeignKey,
-					TableName: model.TableName,
-					FKName:  fk.ConstraintName,
-				})
-			}
-		}
-
-		// Check for indexes to add
+		// Check for indexes to add - SAFE, but be more conservative
 		existingIndexes := map[string]introspect.ExistingIndex{}
 		for _, idx := range table.Indexes {
 			existingIndexes[idx.IndexName] = idx
@@ -211,49 +181,14 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 				}
 			}
 		}
-
-		// Check for indexes to drop (in existing but not in model)
-		for _, idx := range table.Indexes {
-			found := false
-			// Check table-level indexes
-			for _, modelIdx := range model.Indexes {
-				if modelIdx.Name == idx.IndexName {
-					found = true
-					break
-				}
-			}
-			// Check column-level indexes
-			if !found {
-				for _, col := range model.Columns {
-					if col.Index != nil {
-						indexName := col.Index.Name
-						if indexName == "" {
-							if len(col.Index.Columns) > 0 {
-								indexName = fmt.Sprintf("idx_%s_%s", model.TableName, strings.Join(col.Index.Columns, "_"))
-							} else {
-								indexName = fmt.Sprintf("idx_%s_%s", model.TableName, col.Name)
-							}
-						}
-						if indexName == idx.IndexName {
-							found = true
-							break
-						}
-					}
-				}
-			}
-			
-			if !found {
-				ops = append(ops, Operation{
-					Type:      DropIndex,
-					TableName: model.TableName,
-					IndexName: idx.IndexName,
-				})
-			}
-		}
 	}
 
-	// Check for tables to drop (in existing but not in model)
+	// Check for tables to drop (in existing but not in model) - DESTRUCTIVE
 	for _, table := range existing {
+		// Skip system tables
+		if table.TableName == "schema_migrations" || table.TableName == "migration_logs" {
+			continue
+		}
 		if _, exists := modelTableMap[table.TableName]; !exists {
 			ops = append(ops, Operation{
 				Type:      DropTable,
@@ -265,11 +200,18 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 	return ops
 }
 
-// needsColumnModification checks if a column needs to be modified
-func needsColumnModification(existing introspect.ExistingColumn, model schema.Column) bool {
-	// Check if data type changed - be more lenient with type comparisons
+// needsSignificantColumnModification checks if a column needs significant modification
+// Only triggers for actual schema changes, not system differences
+func needsSignificantColumnModification(existing introspect.ExistingColumn, model schema.Column) bool {
+	// Skip primary key columns - they're handled by the database
+	if existing.IsPrimaryKey {
+		return false
+	}
+
+	// Check if data type changed - be very lenient with type comparisons
 	if !isCompatibleType(existing.DataType, model.Type) {
-		return true
+		// Only consider it a change if it's a significant type change
+		return isSignificantTypeChange(existing.DataType, model.Type)
 	}
 
 	// Check if nullable constraint changed - be more precise
@@ -298,6 +240,45 @@ func needsColumnModification(existing introspect.ExistingColumn, model schema.Co
 		}
 	}
 
+	return false
+}
+
+// isSignificantTypeChange checks if a type change is significant enough to warrant a migration
+func isSignificantTypeChange(oldType, newType string) bool {
+	oldType = strings.ToLower(strings.TrimSpace(oldType))
+	newType = strings.ToLower(strings.TrimSpace(newType))
+	
+	// Extract base types (remove size specifications)
+	oldBase := extractBaseType(oldType)
+	newBase := extractBaseType(newType)
+	
+	// If base types are the same, it's not significant
+	if oldBase == newBase {
+		return false
+	}
+	
+	// Significant type changes that require migration
+	significantChanges := map[string][]string{
+		"text": {"integer", "bigint", "smallint", "numeric", "decimal", "boolean", "date", "timestamp"},
+		"varchar": {"integer", "bigint", "smallint", "numeric", "decimal", "boolean", "date", "timestamp"},
+		"integer": {"text", "varchar", "boolean", "date", "timestamp"},
+		"bigint": {"text", "varchar", "boolean", "date", "timestamp"},
+		"smallint": {"text", "varchar", "boolean", "date", "timestamp"},
+		"numeric": {"text", "varchar", "boolean", "date", "timestamp"},
+		"decimal": {"text", "varchar", "boolean", "date", "timestamp"},
+		"boolean": {"text", "varchar", "integer", "bigint", "smallint", "numeric", "decimal", "date", "timestamp"},
+		"date": {"text", "varchar", "integer", "bigint", "smallint", "numeric", "decimal", "boolean", "timestamp"},
+		"timestamp": {"text", "varchar", "integer", "bigint", "smallint", "numeric", "decimal", "boolean", "date"},
+	}
+	
+	if incompatible, exists := significantChanges[oldBase]; exists {
+		for _, incompatibleType := range incompatible {
+			if newBase == incompatibleType {
+				return true
+			}
+		}
+	}
+	
 	return false
 }
 
