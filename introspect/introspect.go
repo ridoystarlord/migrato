@@ -214,19 +214,12 @@ func getForeignKeys(ctx context.Context, pool *pgxpool.Pool, tableName string) (
 func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingIndex, error) {
 	indexesQuery := `
 	SELECT
-		i.indexname,
-		i.tablename,
-		array_to_string(array_agg(a.attname), ',') as column_names,
-		idx.indisunique,
-		am.amname as index_type
-	FROM pg_indexes i
-	JOIN pg_class c ON c.relname = i.indexname
-	JOIN pg_index idx ON idx.indexrelid = c.oid
-	JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
-	JOIN pg_am am ON am.oid = c.relam
-	WHERE i.tablename = $1 AND i.schemaname = 'public'
-	GROUP BY i.indexname, i.tablename, idx.indisunique, am.amname
-	ORDER BY i.indexname;
+		indexname,
+		tablename,
+		indexdef
+	FROM pg_indexes
+	WHERE tablename = $1 AND schemaname = 'public'
+	ORDER BY indexname;
 	`
 
 	rows, err := pool.Query(ctx, indexesQuery, tableName)
@@ -238,17 +231,20 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	var indexes []ExistingIndex
 	for rows.Next() {
 		var idx ExistingIndex
-		var columnNames string
+		var indexDef string
 		if err := rows.Scan(
 			&idx.IndexName,
 			&idx.TableName,
-			&columnNames,
-			&idx.IsUnique,
-			&idx.IndexType,
+			&indexDef,
 		); err != nil {
 			return nil, fmt.Errorf("scanning index: %v", err)
 		}
-		idx.Columns = extractColumnsFromIndexDef(columnNames)
+		
+		// Parse index definition to extract columns and properties
+		idx.Columns = extractColumnsFromIndexDef(indexDef)
+		idx.IsUnique = strings.Contains(strings.ToLower(indexDef), "unique")
+		idx.IndexType = extractIndexType(indexDef)
+		
 		indexes = append(indexes, idx)
 	}
 
@@ -259,11 +255,59 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	return indexes, nil
 }
 
-func extractColumnsFromIndexDef(indexDef string) []string {
-	// Simple comma-separated column names
-	columns := strings.Split(indexDef, ",")
-	for i, col := range columns {
-		columns[i] = strings.TrimSpace(col)
+func extractIndexType(indexDef string) string {
+	// Extract index type from index definition
+	if strings.Contains(strings.ToLower(indexDef), "using btree") {
+		return "btree"
 	}
-	return columns
+	if strings.Contains(strings.ToLower(indexDef), "using hash") {
+		return "hash"
+	}
+	if strings.Contains(strings.ToLower(indexDef), "using gin") {
+		return "gin"
+	}
+	if strings.Contains(strings.ToLower(indexDef), "using gist") {
+		return "gist"
+	}
+	if strings.Contains(strings.ToLower(indexDef), "using spgist") {
+		return "spgist"
+	}
+	if strings.Contains(strings.ToLower(indexDef), "using brin") {
+		return "brin"
+	}
+	return "btree" // default
+}
+
+func extractColumnsFromIndexDef(indexDef string) []string {
+	// Extract column names from index definition
+	// Example: CREATE INDEX idx_name ON table_name (col1, col2)
+	// We need to extract the column names from the parentheses
+	
+	// Find the part between parentheses
+	start := strings.Index(indexDef, "(")
+	end := strings.LastIndex(indexDef, ")")
+	
+	if start == -1 || end == -1 || start >= end {
+		return []string{}
+	}
+	
+	// Extract the column list
+	columnList := indexDef[start+1:end]
+	
+	// Split by comma and clean up
+	columns := strings.Split(columnList, ",")
+	var result []string
+	
+	for _, col := range columns {
+		// Remove quotes and trim whitespace
+		col = strings.TrimSpace(col)
+		col = strings.Trim(col, `"'`)
+		
+		// Skip if empty
+		if col != "" {
+			result = append(result, col)
+		}
+	}
+	
+	return result
 }
