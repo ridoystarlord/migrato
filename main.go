@@ -2,7 +2,7 @@ package main
 
 import "github.com/ridoystarlord/migrato/cmd"
 
-var version = "dev"
+var version = "v1.0.0"
 
 func main() {
 	cmd.Version = version

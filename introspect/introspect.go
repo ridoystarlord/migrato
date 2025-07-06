@@ -3,10 +3,11 @@ package introspect
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/ridoystarlord/migrato/utils"
+	"github.com/ridoystarlord/migrato/database"
 )
 
 type ExistingTable struct {
@@ -43,18 +44,11 @@ type ExistingIndex struct {
 }
 
 func IntrospectDatabase() ([]ExistingTable, error) {
-	utils.LoadEnv()
-	connStr := utils.GetDatabaseURL()
-	if connStr == "" {
-		return nil, fmt.Errorf("DATABASE_URL not set in environment")
-	}
-
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, connStr)
+	pool, err := database.GetPool()
 	if err != nil {
-		return nil, fmt.Errorf("unable to create connection pool: %v", err)
+		return nil, fmt.Errorf("unable to get connection pool: %v", err)
 	}
-	defer pool.Close()
 
 	tablesQuery := `
 	SELECT table_name
@@ -112,19 +106,8 @@ func IntrospectDatabase() ([]ExistingTable, error) {
 
 // Connect returns a database connection for use by other packages
 func Connect() (*pgx.Conn, error) {
-	utils.LoadEnv()
-	connStr := utils.GetDatabaseURL()
-	if connStr == "" {
-		return nil, fmt.Errorf("DATABASE_URL not set in environment")
-	}
-
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, connStr)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create connection: %v", err)
-	}
-	
-	return conn, nil
+	return database.GetConnection(ctx)
 }
 
 func getColumns(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingColumn, error) {
@@ -232,15 +215,17 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	indexesQuery := `
 	SELECT
 		i.indexname,
-		i.indexdef,
-		(CASE WHEN i.indexdef LIKE '%UNIQUE%' THEN true ELSE false END) as is_unique,
+		i.tablename,
+		array_to_string(array_agg(a.attname), ',') as column_names,
+		i.indisunique,
 		am.amname as index_type
 	FROM pg_indexes i
-	LEFT JOIN pg_class c ON i.indexname = c.relname
-	LEFT JOIN pg_am am ON c.relam = am.oid
-	WHERE i.tablename = $1 
-		AND i.schemaname = 'public'
-		AND i.indexname NOT LIKE '%_pkey'  -- Exclude primary key indexes
+	JOIN pg_class c ON c.relname = i.indexname
+	JOIN pg_index idx ON idx.indexrelname = i.indexname
+	JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
+	JOIN pg_am am ON am.oid = c.relam
+	WHERE i.tablename = $1 AND i.schemaname = 'public'
+	GROUP BY i.indexname, i.tablename, i.indisunique, am.amname
 	ORDER BY i.indexname;
 	`
 
@@ -253,21 +238,17 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	var indexes []ExistingIndex
 	for rows.Next() {
 		var idx ExistingIndex
-		var indexDef string
+		var columnNames string
 		if err := rows.Scan(
 			&idx.IndexName,
-			&indexDef,
+			&idx.TableName,
+			&columnNames,
 			&idx.IsUnique,
 			&idx.IndexType,
 		); err != nil {
 			return nil, fmt.Errorf("scanning index: %v", err)
 		}
-		
-		idx.TableName = tableName
-		// Extract column names from index definition
-		// This is a simplified approach - in production you might want more robust parsing
-		idx.Columns = extractColumnsFromIndexDef(indexDef)
-		
+		idx.Columns = extractColumnsFromIndexDef(columnNames)
 		indexes = append(indexes, idx)
 	}
 
@@ -278,10 +259,11 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	return indexes, nil
 }
 
-// extractColumnsFromIndexDef extracts column names from PostgreSQL index definition
-// This is a simplified parser - in production you might want a more robust solution
 func extractColumnsFromIndexDef(indexDef string) []string {
-	// This is a basic implementation - you might want to use a proper SQL parser
-	// For now, we'll return a placeholder
-	return []string{"column_name"} // Placeholder
+	// Simple comma-separated column names
+	columns := strings.Split(indexDef, ",")
+	for i, col := range columns {
+		columns[i] = strings.TrimSpace(col)
+	}
+	return columns
 }

@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/ridoystarlord/migrato/utils"
+	"github.com/ridoystarlord/migrato/database"
 )
 
 // MigrationRecord represents a migration execution record
@@ -41,15 +41,10 @@ type MigrationLog struct {
 }
 
 func getConn() (*pgx.Conn, context.Context, error) {
-	utils.LoadEnv()
-	connStr := utils.GetDatabaseURL()
-	if connStr == "" {
-		return nil, nil, fmt.Errorf("DATABASE_URL not set")
-	}
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, connStr)
+	conn, err := database.GetConnection(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect: %v", err)
+		return nil, nil, fmt.Errorf("get connection: %v", err)
 	}
 	return conn, ctx, nil
 }

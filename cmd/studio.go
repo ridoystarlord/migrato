@@ -1,16 +1,16 @@
 package cmd
 
 import (
-	"database/sql"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/ridoystarlord/migrato/database"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -419,14 +419,14 @@ func (s *StudioServer) handleTables(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get database connection
-	db, err := s.getDB()
+	// Get database pool
+	pool, err := s.getPool()
 	if err != nil {
 		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer db.Close()
 
+	ctx := context.Background()
 	// Query to get all tables
 	query := `
 		SELECT table_name 
@@ -436,7 +436,7 @@ func (s *StudioServer) handleTables(w http.ResponseWriter, r *http.Request) {
 		ORDER BY table_name
 	`
 
-	rows, err := db.Query(query)
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		http.Error(w, "Failed to query tables: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -488,13 +488,14 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	search := r.URL.Query().Get("search")
 	offset := (page - 1) * limit
 
-	// Get database connection
-	db, err := s.getDB()
+	// Get database pool
+	pool, err := s.getPool()
 	if err != nil {
 		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer db.Close()
+
+	ctx := context.Background()
 
 	// Build query with search
 	var query string
@@ -513,7 +514,7 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 		
 		// Get column names first
 		colQuery := "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public'"
-		colRows, err := db.Query(colQuery, path)
+		colRows, err := pool.Query(ctx, colQuery, path)
 		if err != nil {
 			http.Error(w, "Failed to get column info: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -551,7 +552,7 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	query += " LIMIT " + strconv.Itoa(limit) + " OFFSET " + strconv.Itoa(offset)
 
 	// Execute query
-	rows, err := db.Query(query, args...)
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		http.Error(w, "Failed to query table data: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -559,10 +560,10 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	// Get column names
-	columns, err := rows.Columns()
-	if err != nil {
-		http.Error(w, "Failed to get columns: "+err.Error(), http.StatusInternalServerError)
-		return
+	fieldDescriptions := rows.FieldDescriptions()
+	columns := make([]string, len(fieldDescriptions))
+	for i, fd := range fieldDescriptions {
+		columns[i] = string(fd.Name)
 	}
 
 	// Scan data
@@ -615,7 +616,7 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	err = db.QueryRow(countQuery, args...).Scan(&total)
+	err = pool.QueryRow(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		// If count fails, just use the data length
 		total = len(data)
@@ -632,24 +633,8 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-func (s *StudioServer) getDB() (*sql.DB, error) {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL environment variable not set")
-	}
-
-	db, err := sql.Open("postgres", dbURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Test the connection
-	if err := db.Ping(); err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	return db, nil
+func (s *StudioServer) getPool() (*pgxpool.Pool, error) {
+	return database.GetPool()
 }
 
 func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
