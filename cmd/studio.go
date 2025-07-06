@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -63,6 +65,8 @@ func startStudioServer(port string) error {
 	http.HandleFunc("/api/tables", server.handleTables)
 	http.HandleFunc("/api/table/", server.handleTableData)
 	http.HandleFunc("/api/update/", server.handleUpdateData)
+	http.HandleFunc("/api/export/", server.handleExportData)
+	http.HandleFunc("/api/import/", server.handleImportData)
 	http.HandleFunc("/static/", server.handleStatic)
 
 	// Start server
@@ -333,7 +337,6 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                 </svg>
             </button>
-            <div class="text-2xl">🐘</div>
             <div>
                 <h1 class="text-xl font-bold text-white">Migrato Studio</h1>
                 <p class="text-slate-400 text-sm">Database Browser</p>
@@ -381,7 +384,7 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             <div id="tableView" class="h-full flex flex-col">
                 <div class="flex-1 flex items-center justify-center">
                     <div class="text-center">
-                        <div class="text-6xl mb-6 opacity-50">📊</div>
+                        <div class="text-6xl mb-6 opacity-50">DB</div>
                         <h2 class="text-2xl font-semibold text-white mb-3">Welcome to Migrato Studio</h2>
                         <p class="text-slate-400 text-lg">Select a table from the sidebar to explore your data</p>
                         <div class="mt-8 flex items-center justify-center space-x-4 text-slate-500">
@@ -726,528 +729,13 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`/* Tailwind CSS is loaded via CDN */`))
 	case "app.js":
 		w.Header().Set("Content-Type", "application/javascript")
-		w.Write([]byte(
-			"// Migrato Studio - Database Browser\n" +
-			"class MigratoStudio {\n" +
-			"    constructor() {\n" +
-			"        this.currentTable = null;\n" +
-			"        this.currentPage = 1;\n" +
-			"        this.pageSize = 50;\n" +
-			"        this.searchTerm = '';\n" +
-			"        this.loading = false;\n" +
-			"        this.sidebarCollapsed = false;\n" +
-			"        this.isDarkMode = true;\n" +
-			"        this.editMode = false;\n" +
-			"        this.init();\n" +
-			"    }\n" +
-			"    async init() {\n" +
-			"        this.loadTheme();\n" +
-			"        await this.loadTables();\n" +
-			"        this.setupEventListeners();\n" +
-			"    }\n" +
-			"    async loadTables() {\n" +
-			"        try {\n" +
-			"            const response = await fetch(\"/api/tables\");\n" +
-			"            const data = await response.json();\n" +
-			"            this.renderTableList(data.tables);\n" +
-			"        } catch (error) {\n" +
-			"            console.error(\"Error loading tables:\", error);\n" +
-			"            this.showError(\"Failed to load tables\");\n" +
-			"        }\n" +
-			"    }\n" +
-			"    renderTableList(tables) {\n" +
-			"        const tableList = document.getElementById(\"tableList\");\n" +
-			"        tableList.innerHTML = '';\n" +
-			"        \n" +
-			"        if (tables.length === 0) {\n" +
-			"            tableList.innerHTML = '<div class=\\\"text-slate-400 italic text-sm p-4\\\">No tables found</div>';\n" +
-			"            return;\n" +
-			"        }\n" +
-			"        \n" +
-			"        tables.forEach((table, index) => {\n" +
-			"            const item = document.createElement(\"div\");\n" +
-			"            item.className = 'group flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer hover:bg-slate-700 transition-all duration-200 text-sm font-medium text-slate-300 hover:text-white slide-in';\n" +
-			"            item.style.animationDelay = (index * 50) + 'ms';\n" +
-			"            \n" +
-			"            const icon = document.createElement(\"div\");\n" +
-			"            icon.className = 'w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors';\n" +
-			"            icon.innerHTML = '📋';\n" +
-			"            \n" +
-			"            const text = document.createElement(\"span\");\n" +
-			"            text.textContent = table;\n" +
-			"            \n" +
-			"            item.appendChild(icon);\n" +
-			"            item.appendChild(text);\n" +
-			"            item.onclick = () => this.selectTable(table);\n" +
-			"            tableList.appendChild(item);\n" +
-			"        });\n" +
-			"    }\n" +
-			"    async selectTable(tableName) {\n" +
-			"        this.currentTable = tableName;\n" +
-			"        this.currentPage = 1;\n" +
-			"        \n" +
-			"        // Update active state\n" +
-			"        document.querySelectorAll(\"[onclick*='selectTable']\").forEach(item => {\n" +
-			"            item.classList.remove(\"bg-blue-600\", \"text-white\");\n" +
-			"            item.classList.add(\"text-slate-300\", \"hover:bg-slate-700\");\n" +
-			"            item.querySelector('div').classList.remove(\"text-blue-400\");\n" +
-			"            item.querySelector('div').classList.add(\"text-slate-500\");\n" +
-			"        });\n" +
-			"        \n" +
-			"        event.target.closest('div').classList.remove(\"text-slate-300\", \"hover:bg-slate-700\");\n" +
-			"        event.target.closest('div').classList.add(\"bg-blue-600\", \"text-white\");\n" +
-			"        event.target.closest('div').querySelector('div').classList.remove(\"text-slate-500\");\n" +
-			"        event.target.closest('div').querySelector('div').classList.add(\"text-blue-400\");\n" +
-			"        \n" +
-			"        await this.loadTableData();\n" +
-			"    }\n" +
-			"    async loadTableData() {\n" +
-			"        if (!this.currentTable || this.loading) return;\n" +
-			"        \n" +
-			"        this.loading = true;\n" +
-			"        this.showLoading();\n" +
-			"        \n" +
-			"        const params = new URLSearchParams({\n" +
-			"            page: this.currentPage,\n" +
-			"            limit: this.pageSize,\n" +
-			"            search: this.searchTerm\n" +
-			"        });\n" +
-			"        \n" +
-			"        try {\n" +
-			"            const response = await fetch(\"/api/table/\" + this.currentTable + \"?\" + params);\n" +
-			"            const data = await response.json();\n" +
-			"            this.renderTableData(data);\n" +
-			"        } catch (error) {\n" +
-			"            console.error(\"Error loading table data:\", error);\n" +
-			"            this.showError(\"Failed to load table data\");\n" +
-			"        } finally {\n" +
-			"            this.loading = false;\n" +
-			"        }\n" +
-			"    }\n" +
-			"    showLoading() {\n" +
-			"        const tableView = document.getElementById(\"tableView\");\n" +
-			"        tableView.innerHTML = '<div class=\\\"flex-1 flex items-center justify-center\\\"><div class=\\\"text-center\\\"><div class=\\\"animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4\\\"></div><div class=\\\"text-slate-400\\\">Loading data...</div></div></div>';\n" +
-			"    }\n" +
-			"    renderTableData(data) {\n" +
-			"        const tableView = document.getElementById(\"tableView\");\n" +
-			"        \n" +
-			"        if (!data.data || data.data.length === 0) {\n" +
-			"            tableView.innerHTML = '<div class=\\\"flex-1 flex items-center justify-center\\\"><div class=\\\"text-center\\\"><div class=\\\"text-4xl mb-4 opacity-50\\\">📭</div><div class=\\\"text-slate-400 text-lg\\\">No data found</div></div></div>';\n" +
-			"            return;\n" +
-			"        }\n" +
-			"        \n" +
-			"        const controls = this.createTableControls();\n" +
-			"        const table = this.createDataTable(data.data);\n" +
-			"        const pagination = this.createPagination(data);\n" +
-			"        \n" +
-			"        tableView.innerHTML = '';\n" +
-			"        tableView.className = 'h-full flex flex-col p-6';\n" +
-			"        tableView.appendChild(controls);\n" +
-			"        tableView.appendChild(table);\n" +
-			"        tableView.appendChild(pagination);\n" +
-			"        \n" +
-			"        // Add fade-in animation\n" +
-			"        tableView.classList.add('fade-in');\n" +
-			"        \n" +
-			"        // Enable inline editing if edit mode is active\n" +
-			"        if (this.editMode) {\n" +
-			"            this.enableInlineEditing();\n" +
-			"        }\n" +
-			"    }\n" +
-			"    createTableControls() {\n" +
-			"        const controls = document.createElement(\"div\");\n" +
-			"        controls.className = 'flex items-center justify-between mb-6';\n" +
-			"        \n" +
-			"        const title = document.createElement(\"h2\");\n" +
-			"        title.className = 'text-2xl font-bold text-white';\n" +
-			"        title.textContent = this.currentTable;\n" +
-			"        \n" +
-			"        const rightControls = document.createElement(\"div\");\n" +
-			"        rightControls.className = 'flex items-center space-x-4';\n" +
-			"        \n" +
-			"        // Edit mode toggle button\n" +
-			"        const editToggle = document.createElement(\"button\");\n" +
-			"        editToggle.id = 'edit-mode-toggle';\n" +
-			"        editToggle.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors';\n" +
-			"        editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z\\\"></path></svg>Enable Edit Mode';\n" +
-			"        \n" +
-			"        editToggle.addEventListener('click', () => {\n" +
-			"            this.toggleEditMode();\n" +
-			"        });\n" +
-			"        \n" +
-			"        const searchBox = document.createElement(\"div\");\n" +
-			"        searchBox.className = 'relative';\n" +
-			"        searchBox.innerHTML = '<input type=\\\"text\\\" placeholder=\\\"Search in table...\\\" value=\\\"' + this.searchTerm + '\\\" class=\\\"pl-10 pr-4 py-3 bg-slate-800 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-80 text-white placeholder-slate-400\\\">';\n" +
-			"        searchBox.innerHTML += '<svg class=\\\"absolute left-3 top-3.5 h-5 w-5 text-slate-400\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z\\\"></path></svg>';\n" +
-			"        \n" +
-			"        const input = searchBox.querySelector(\"input\");\n" +
-			"        let debounceTimer;\n" +
-			"        input.addEventListener(\"input\", (e) => {\n" +
-			"            clearTimeout(debounceTimer);\n" +
-			"            debounceTimer = setTimeout(() => {\n" +
-			"                this.searchTerm = e.target.value;\n" +
-			"                this.currentPage = 1;\n" +
-			"                this.loadTableData();\n" +
-			"            }, 300);\n" +
-			"        });\n" +
-			"        \n" +
-			"        rightControls.appendChild(editToggle);\n" +
-			"        rightControls.appendChild(searchBox);\n" +
-			"        \n" +
-			"        controls.appendChild(title);\n" +
-			"        controls.appendChild(rightControls);\n" +
-			"        return controls;\n" +
-			"    }\n" +
-			"    createDataTable(data) {\n" +
-			"        const tableContainer = document.createElement(\"div\");\n" +
-			"        tableContainer.className = 'flex-1 overflow-hidden bg-slate-800 rounded-lg border border-slate-700';\n" +
-			"        \n" +
-			"        const tableWrapper = document.createElement(\"div\");\n" +
-			"        tableWrapper.className = 'h-full overflow-auto';\n" +
-			"        \n" +
-			"        const table = document.createElement(\"table\");\n" +
-			"        table.className = 'min-w-full divide-y divide-slate-700';\n" +
-			"        \n" +
-			"        const thead = document.createElement(\"thead\");\n" +
-			"        thead.className = 'bg-slate-700 sticky top-0';\n" +
-			"        const headerRow = document.createElement(\"tr\");\n" +
-			"        \n" +
-			"        Object.keys(data[0]).forEach(key => {\n" +
-			"            const th = document.createElement(\"th\");\n" +
-			"            th.className = 'px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider';\n" +
-			"            th.textContent = key;\n" +
-			"            headerRow.appendChild(th);\n" +
-			"        });\n" +
-			"        \n" +
-			"        thead.appendChild(headerRow);\n" +
-			"        table.appendChild(thead);\n" +
-			"        \n" +
-			"        const tbody = document.createElement(\"tbody\");\n" +
-			"        tbody.className = 'bg-slate-800 divide-y divide-slate-700';\n" +
-			"        \n" +
-			"        data.forEach((row, index) => {\n" +
-			"            const tr = document.createElement(\"tr\");\n" +
-			"            tr.className = index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-750';\n" +
-			"            tr.className += ' hover:bg-slate-700 transition-colors duration-150';\n" +
-			"            \n" +
-			"            // Set row ID attributes for editing\n" +
-			"            const rowKeys = Object.keys(row);\n" +
-			"            const firstKey = rowKeys[0];\n" +
-			"            tr.setAttribute('data-row-id', firstKey);\n" +
-			"            tr.setAttribute('data-row-id-value', String(row[firstKey]));\n" +
-			"            \n" +
-			"            Object.entries(row).forEach(([key, value]) => {\n" +
-			"                const td = document.createElement(\"td\");\n" +
-			"                td.className = 'px-6 py-4 whitespace-nowrap text-sm text-slate-300';\n" +
-			"                td.setAttribute('data-column', key);\n" +
-			"                td.setAttribute('data-editable', 'true');\n" +
-			"                \n" +
-			"                if (value === null) {\n" +
-			"                    td.innerHTML = '<span class=\\\"text-slate-500 italic\\\">NULL</span>';\n" +
-			"                } else {\n" +
-			"                    td.textContent = String(value);\n" +
-			"                }\n" +
-			"                \n" +
-			"                tr.appendChild(td);\n" +
-			"            });\n" +
-			"            tbody.appendChild(tr);\n" +
-			"        });\n" +
-			"        \n" +
-			"        table.appendChild(tbody);\n" +
-			"        tableWrapper.appendChild(table);\n" +
-			"        tableContainer.appendChild(tableWrapper);\n" +
-			"        return tableContainer;\n" +
-			"    }\n" +
-			"    createPagination(data) {\n" +
-			"        const pagination = document.createElement(\"div\");\n" +
-			"        pagination.className = 'flex items-center justify-between mt-6 pt-6 border-t border-slate-700';\n" +
-			"        \n" +
-			"        const totalPages = Math.ceil(data.total / this.pageSize);\n" +
-			"        \n" +
-			"        const info = document.createElement(\"div\");\n" +
-			"        info.className = 'text-sm text-slate-400';\n" +
-			"        info.textContent = 'Showing ' + ((this.currentPage - 1) * this.pageSize + 1) + ' to ' + Math.min(this.currentPage * this.pageSize, data.total) + ' of ' + data.total + ' rows';\n" +
-			"        \n" +
-			"        const controls = document.createElement(\"div\");\n" +
-			"        controls.className = 'flex space-x-2';\n" +
-			"        \n" +
-			"        const prevBtn = document.createElement(\"button\");\n" +
-			"        prevBtn.textContent = '← Previous';\n" +
-			"        prevBtn.disabled = this.currentPage <= 1;\n" +
-			"        prevBtn.className = 'px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors';\n" +
-			"        prevBtn.onclick = () => {\n" +
-			"            if (this.currentPage > 1) {\n" +
-			"                this.currentPage--;\n" +
-			"                this.loadTableData();\n" +
-			"            }\n" +
-			"        };\n" +
-			"        \n" +
-			"        const nextBtn = document.createElement(\"button\");\n" +
-			"        nextBtn.textContent = 'Next →';\n" +
-			"        nextBtn.disabled = this.currentPage >= totalPages;\n" +
-			"        nextBtn.className = 'px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors';\n" +
-			"        nextBtn.onclick = () => {\n" +
-			"            if (this.currentPage < totalPages) {\n" +
-			"                this.currentPage++;\n" +
-			"                this.loadTableData();\n" +
-			"            }\n" +
-			"        };\n" +
-			"        \n" +
-			"        controls.appendChild(prevBtn);\n" +
-			"        controls.appendChild(nextBtn);\n" +
-			"        \n" +
-			"        pagination.appendChild(info);\n" +
-			"        pagination.appendChild(controls);\n" +
-			"        return pagination;\n" +
-			"    }\n" +
-			"    setupEventListeners() {\n" +
-			"        // Sidebar toggle functionality\n" +
-			"        const sidebarToggle = document.getElementById('sidebarToggle');\n" +
-			"        const sidebarClose = document.getElementById('sidebarClose');\n" +
-			"        const sidebar = document.getElementById('sidebar');\n" +
-			"        const sidebarOverlay = document.getElementById('sidebarOverlay');\n" +
-			"        \n" +
-			"        // Toggle sidebar on button click\n" +
-			"        sidebarToggle.addEventListener('click', () => {\n" +
-			"            this.toggleSidebar();\n" +
-			"        });\n" +
-			"        \n" +
-			"        // Close sidebar on close button (mobile)\n" +
-			"        sidebarClose.addEventListener('click', () => {\n" +
-			"            this.closeSidebar();\n" +
-			"        });\n" +
-			"        \n" +
-			"        // Close sidebar on overlay click (mobile)\n" +
-			"        sidebarOverlay.addEventListener('click', () => {\n" +
-			"            this.closeSidebar();\n" +
-			"        });\n" +
-			"        \n" +
-			"        // Theme toggle functionality\n" +
-			"        const themeToggle = document.getElementById('themeToggle');\n" +
-			"        const themeIcon = document.getElementById('themeIcon');\n" +
-			"        \n" +
-			"        // Toggle theme on button click\n" +
-			"        themeToggle.addEventListener('click', () => {\n" +
-			"            this.toggleTheme();\n" +
-			"        });\n" +
-			"        \n" +
-			"        // Add keyboard shortcuts\n" +
-			"        document.addEventListener('keydown', (e) => {\n" +
-			"            if (e.ctrlKey || e.metaKey) {\n" +
-			"                switch(e.key) {\n" +
-			"                    case 'f':\n" +
-			"                        e.preventDefault();\n" +
-			"                        const searchInput = document.querySelector('input[placeholder*=\"Search\"]');\n" +
-			"                        if (searchInput) searchInput.focus();\n" +
-			"                        break;\n" +
-			"                    case 'b':\n" +
-			"                        e.preventDefault();\n" +
-			"                        this.toggleSidebar();\n" +
-			"                        break;\n" +
-			"                    case 't':\n" +
-			"                        e.preventDefault();\n" +
-			"                        this.toggleTheme();\n" +
-			"                        break;\n" +
-			"                }\n" +
-			"            }\n" +
-			"        });\n" +
-			"    }\n" +
-			"    toggleSidebar() {\n" +
-			"        const sidebar = document.getElementById('sidebar');\n" +
-			"        const sidebarOverlay = document.getElementById('sidebarOverlay');\n" +
-			"        \n" +
-			"        if (this.sidebarCollapsed) {\n" +
-			"            // Expand sidebar\n" +
-			"            sidebar.classList.remove('sidebar-collapsed');\n" +
-			"            sidebarOverlay.classList.remove('active');\n" +
-			"            this.sidebarCollapsed = false;\n" +
-			"        } else {\n" +
-			"            // Collapse sidebar\n" +
-			"            sidebar.classList.add('sidebar-collapsed');\n" +
-			"            if (window.innerWidth < 1024) {\n" +
-			"                sidebarOverlay.classList.add('active');\n" +
-			"            }\n" +
-			"            this.sidebarCollapsed = true;\n" +
-			"        }\n" +
-			"    }\n" +
-			"    closeSidebar() {\n" +
-			"        const sidebar = document.getElementById('sidebar');\n" +
-			"        const sidebarOverlay = document.getElementById('sidebarOverlay');\n" +
-			"        \n" +
-			"        sidebar.classList.remove('sidebar-open');\n" +
-			"        sidebarOverlay.classList.remove('active');\n" +
-			"    }\n" +
-			"    toggleTheme() {\n" +
-			"        const body = document.body;\n" +
-			"        const themeIcon = document.getElementById('themeIcon');\n" +
-			"        \n" +
-			"        if (this.isDarkMode) {\n" +
-			"            // Switch to light mode\n" +
-			"            body.classList.add('light-mode');\n" +
-			"            themeIcon.innerHTML = '<path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z\\\"></path>';\n" +
-			"            this.isDarkMode = false;\n" +
-			"        } else {\n" +
-			"            // Switch to dark mode\n" +
-			"            body.classList.remove('light-mode');\n" +
-			"            themeIcon.innerHTML = '<path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z\\\"></path>';\n" +
-			"            this.isDarkMode = true;\n" +
-			"        }\n" +
-			"        \n" +
-			"        // Save theme preference\n" +
-			"        localStorage.setItem('migrato-theme', this.isDarkMode ? 'dark' : 'light');\n" +
-			"    }\n" +
-			"    loadTheme() {\n" +
-			"        const savedTheme = localStorage.getItem('migrato-theme');\n" +
-			"        const themeIcon = document.getElementById('themeIcon');\n" +
-			"        \n" +
-			"        if (savedTheme === 'light') {\n" +
-			"            document.body.classList.add('light-mode');\n" +
-			"            themeIcon.innerHTML = '<path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z\\\"></path>';\n" +
-			"            this.isDarkMode = false;\n" +
-			"        }\n" +
-			"    }\n" +
-			"    toggleEditMode() {\n" +
-			"        this.editMode = !this.editMode;\n" +
-			"        const editToggle = document.getElementById('edit-mode-toggle');\n" +
-			"        \n" +
-			"        if (this.editMode) {\n" +
-			"            editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M5 13l4 4L19 7\\\"></path></svg>Disable Edit Mode';\n" +
-			"            editToggle.className = 'px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 transition-colors';\n" +
-			"            this.enableInlineEditing();\n" +
-			"        } else {\n" +
-			"            editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z\\\"></path></svg>Enable Edit Mode';\n" +
-			"            editToggle.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors';\n" +
-			"            this.disableInlineEditing();\n" +
-			"        }\n" +
-			"    }\n" +
-			"    enableInlineEditing() {\n" +
-			"        const cells = document.querySelectorAll('td[data-editable=\"true\"]');\n" +
-			"        cells.forEach(cell => {\n" +
-			"            cell.style.cursor = 'pointer';\n" +
-			"            cell.classList.add('hover:bg-slate-600');\n" +
-			"            cell.addEventListener('click', this.handleCellClick.bind(this));\n" +
-			"        });\n" +
-			"    }\n" +
-			"    disableInlineEditing() {\n" +
-			"        const cells = document.querySelectorAll('td[data-editable=\"true\"]');\n" +
-			"        cells.forEach(cell => {\n" +
-			"            cell.style.cursor = 'default';\n" +
-			"            cell.classList.remove('hover:bg-slate-600');\n" +
-			"            cell.removeEventListener('click', this.handleCellClick.bind(this));\n" +
-			"        });\n" +
-			"    }\n" +
-			"    handleCellClick(event) {\n" +
-			"        if (!this.editMode) return;\n" +
-			"        \n" +
-			"        const cell = event.target;\n" +
-			"        const originalValue = cell.textContent;\n" +
-			"        const columnName = cell.getAttribute('data-column');\n" +
-			"        const rowId = cell.closest('tr').getAttribute('data-row-id');\n" +
-			"        const rowIdValue = cell.closest('tr').getAttribute('data-row-id-value');\n" +
-			"        \n" +
-			"        // Create input field\n" +
-			"        const input = document.createElement('input');\n" +
-			"        input.type = 'text';\n" +
-			"        input.value = originalValue === 'NULL' ? '' : originalValue;\n" +
-			"        input.className = 'w-full px-2 py-1 bg-slate-700 border border-slate-500 rounded text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';\n" +
-			"        \n" +
-			"        // Replace cell content with input\n" +
-			"        cell.innerHTML = '';\n" +
-			"        cell.appendChild(input);\n" +
-			"        input.focus();\n" +
-			"        input.select();\n" +
-			"        \n" +
-			"        // Handle save on Enter or blur\n" +
-			"        const saveEdit = () => {\n" +
-			"            const newValue = input.value.trim();\n" +
-			"            const finalValue = newValue === '' ? null : newValue;\n" +
-			"            \n" +
-			"            if (finalValue !== (originalValue === 'NULL' ? null : originalValue)) {\n" +
-			"                this.saveCellEdit(rowId, rowIdValue, columnName, finalValue);\n" +
-			"            } else {\n" +
-			"                this.restoreCellContent(cell, originalValue);\n" +
-			"            }\n" +
-			"        };\n" +
-			"        \n" +
-			"        const cancelEdit = () => {\n" +
-			"            this.restoreCellContent(cell, originalValue);\n" +
-			"        };\n" +
-			"        \n" +
-			"        input.addEventListener('blur', saveEdit);\n" +
-			"        input.addEventListener('keydown', (e) => {\n" +
-			"            if (e.key === 'Enter') {\n" +
-			"                saveEdit();\n" +
-			"            } else if (e.key === 'Escape') {\n" +
-			"                cancelEdit();\n" +
-			"            }\n" +
-			"        });\n" +
-			"    }\n" +
-			"    async saveCellEdit(rowId, rowIdValue, columnName, value) {\n" +
-			"        try {\n" +
-			"            const response = await fetch(`/api/update/${this.currentTable}`, {\n" +
-			"                method: 'PUT',\n" +
-			"                headers: {\n" +
-			"                    'Content-Type': 'application/json',\n" +
-			"                },\n" +
-			"                body: JSON.stringify({\n" +
-			"                    row_id: rowId,\n" +
-			"                    id_value: rowIdValue,\n" +
-			"                    data: {\n" +
-			"                        [columnName]: value\n" +
-			"                    }\n" +
-			"                })\n" +
-			"            });\n" +
-			"            \n" +
-			"            if (response.ok) {\n" +
-			"                const result = await response.json();\n" +
-			"                this.showNotification('Data updated successfully!', 'success');\n" +
-			"                // Refresh the table data\n" +
-			"                await this.loadTableData();\n" +
-			"            } else {\n" +
-			"                const error = await response.text();\n" +
-			"                this.showNotification('Update failed: ' + error, 'error');\n" +
-			"            }\n" +
-			"        } catch (error) {\n" +
-			"            console.error('Error saving edit:', error);\n" +
-			"            this.showNotification('Update failed: ' + error.message, 'error');\n" +
-			"        }\n" +
-			"    }\n" +
-			"    restoreCellContent(cell, value) {\n" +
-			"        if (value === 'NULL') {\n" +
-			"            cell.innerHTML = '<span class=\\\"text-slate-500 italic\\\">NULL</span>';\n" +
-			"        } else {\n" +
-			"            cell.textContent = value;\n" +
-			"        }\n" +
-			"    }\n" +
-			"    showNotification(message, type = 'info') {\n" +
-			"        const notification = document.createElement('div');\n" +
-			"        notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-300 transform translate-x-full ${type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600'} text-white`;\n" +
-			"        notification.textContent = message;\n" +
-			"        \n" +
-			"        document.body.appendChild(notification);\n" +
-			"        \n" +
-			"        // Animate in\n" +
-			"        setTimeout(() => {\n" +
-			"            notification.classList.remove('translate-x-full');\n" +
-			"        }, 100);\n" +
-			"        \n" +
-			"        // Remove after 3 seconds\n" +
-			"        setTimeout(() => {\n" +
-			"            notification.classList.add('translate-x-full');\n" +
-			"            setTimeout(() => {\n" +
-			"                document.body.removeChild(notification);\n" +
-			"            }, 300);\n" +
-			"        }, 3000);\n" +
-			"    }\n" +
-			"    showError(message) {\n" +
-			"        const tableView = document.getElementById(\"tableView\");\n" +
-			"        tableView.innerHTML = '<div class=\\\"flex-1 flex items-center justify-center\\\"><div class=\\\"text-center\\\"><div class=\\\"text-4xl mb-4\\\">⚠️</div><div class=\\\"text-red-400 font-medium text-lg\\\">' + message + '</div></div></div>';\n" +
-			"    }\n" +
-			"}\n" +
-			"document.addEventListener(\"DOMContentLoaded\", () => {\n" +
-			"    new MigratoStudio();\n" +
-			"});\n",
-		))
+		// Read the external JavaScript file
+		jsContent, err := os.ReadFile("static/app.js")
+		if err != nil {
+			http.Error(w, "JavaScript file not found", http.StatusNotFound)
+			return
+		}
+		w.Write(jsContent)
 	default:
 		http.NotFound(w, r)
 	}
@@ -1399,4 +887,553 @@ func (s *StudioServer) buildUpdateQuery(tableName, rowID, idValue string, data m
 
 	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", tableName, strings.Join(setClause, ", "), whereClause)
 	return query, args, nil
-} 
+}
+
+func (s *StudioServer) handleExportData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract table name from URL
+	path := strings.TrimPrefix(r.URL.Path, "/api/export/")
+	if path == "" {
+		http.Error(w, "Table name required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(path) {
+		http.Error(w, "Invalid table name", http.StatusBadRequest)
+		return
+	}
+
+	// Get format from query parameters
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "csv" // default format
+	}
+
+	// Validate format
+	if format != "csv" && format != "json" && format != "sql" {
+		http.Error(w, "Invalid format. Supported formats: csv, json, sql", http.StatusBadRequest)
+		return
+	}
+
+	// Get database pool
+	pool, err := s.getPool()
+	if err != nil {
+		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Get all data from the table
+	query := "SELECT * FROM \"" + path + "\" ORDER BY 1"
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		http.Error(w, "Failed to query table data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Get column names
+	fieldDescriptions := rows.FieldDescriptions()
+	columns := make([]string, len(fieldDescriptions))
+	for i, fd := range fieldDescriptions {
+		columns[i] = string(fd.Name)
+	}
+
+	// Scan data
+	var data []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if scanErr := rows.Scan(valuePtrs...); scanErr != nil {
+			http.Error(w, "Failed to scan row: "+scanErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if val == nil {
+				row[col] = nil
+			} else {
+				row[col] = val
+			}
+		}
+		data = append(data, row)
+	}
+
+	// Generate export content based on format
+	var content string
+	var filename string
+	var contentType string
+
+	switch format {
+	case "csv":
+		content, err = s.generateCSV(columns, data)
+		filename = path + ".csv"
+		contentType = "text/csv"
+	case "json":
+		content, err = s.generateJSON(data)
+		filename = path + ".json"
+		contentType = "application/json"
+	case "sql":
+		content, err = s.generateSQL(path, columns, data)
+		filename = path + ".sql"
+		contentType = "text/plain"
+	}
+
+	if err != nil {
+		http.Error(w, "Failed to generate export: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Set headers for file download
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
+
+	// Write content
+	w.Write([]byte(content))
+}
+
+func (s *StudioServer) generateCSV(columns []string, data []map[string]interface{}) (string, error) {
+	var result strings.Builder
+	
+	// Write header
+	for i, col := range columns {
+		if i > 0 {
+			result.WriteString(",")
+		}
+		result.WriteString(s.escapeCSVField(col))
+	}
+	result.WriteString("\n")
+	
+	// Write data rows
+	for _, row := range data {
+		for i, col := range columns {
+			if i > 0 {
+				result.WriteString(",")
+			}
+			value := row[col]
+			if value == nil {
+				result.WriteString("")
+			} else {
+				result.WriteString(s.escapeCSVField(fmt.Sprint(value)))
+			}
+		}
+		result.WriteString("\n")
+	}
+	
+	return result.String(), nil
+}
+
+func (s *StudioServer) escapeCSVField(field string) string {
+	// If field contains comma, quote, or newline, wrap in quotes and escape internal quotes
+	if strings.ContainsAny(field, ",\"\n\r") {
+		escaped := strings.ReplaceAll(field, "\"", "\"\"")
+		return "\"" + escaped + "\""
+	}
+	return field
+}
+
+func (s *StudioServer) generateJSON(data []map[string]interface{}) (string, error) {
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	return string(jsonData), nil
+}
+
+func (s *StudioServer) generateSQL(tableName string, columns []string, data []map[string]interface{}) (string, error) {
+	var result strings.Builder
+	
+	// Write header comment
+	result.WriteString("-- Export of table " + tableName + "\n")
+	result.WriteString("-- Generated by Migrato Studio\n\n")
+	
+	// Write INSERT statements
+	for _, row := range data {
+		result.WriteString("INSERT INTO " + tableName + " (")
+		
+		// Write column names
+		for i, col := range columns {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			result.WriteString("\"" + col + "\"")
+		}
+		result.WriteString(") VALUES (")
+		
+		// Write values
+		for i, col := range columns {
+			if i > 0 {
+				result.WriteString(", ")
+			}
+			value := row[col]
+			if value == nil {
+				result.WriteString("NULL")
+			} else {
+				switch v := value.(type) {
+				case string:
+					result.WriteString("'" + s.escapeSQLString(v) + "'")
+				case int, int32, int64:
+					result.WriteString(fmt.Sprint(v))
+				case float32, float64:
+					result.WriteString(fmt.Sprint(v))
+				case bool:
+					if v {
+						result.WriteString("true")
+					} else {
+						result.WriteString("false")
+					}
+				default:
+					result.WriteString("'" + fmt.Sprint(v) + "'")
+				}
+			}
+		}
+		result.WriteString(");\n")
+	}
+	
+	return result.String(), nil
+}
+
+func (s *StudioServer) escapeSQLString(str string) string {
+	return strings.ReplaceAll(str, "'", "''")
+}
+
+func (s *StudioServer) handleImportData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse multipart form (max 32MB)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get table name from form
+	tableName := r.FormValue("table")
+	if tableName == "" {
+		http.Error(w, "Table name required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(tableName) {
+		http.Error(w, "Invalid table name", http.StatusBadRequest)
+		return
+	}
+
+	// Get format from form
+	format := r.FormValue("format")
+	if format == "" {
+		format = "csv" // default format
+	}
+
+	// Validate format
+	if format != "csv" && format != "json" && format != "sql" {
+		http.Error(w, "Invalid format. Supported formats: csv, json, sql", http.StatusBadRequest)
+		return
+	}
+
+	// Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to get uploaded file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Read file content
+	content, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get database pool
+	pool, err := s.getPool()
+	if err != nil {
+		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Parse and import data based on format
+	var importResult map[string]interface{}
+	switch format {
+	case "csv":
+		importResult, err = s.importCSV(ctx, pool, tableName, string(content))
+	case "json":
+		importResult, err = s.importJSON(ctx, pool, tableName, content)
+	case "sql":
+		importResult, err = s.importSQL(ctx, pool, string(content))
+	}
+
+	if err != nil {
+		http.Error(w, "Import failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return success response
+	response := map[string]interface{}{
+		"success": true,
+		"message": "Data imported successfully",
+		"filename": header.Filename,
+		"format": format,
+		"table": tableName,
+		"result": importResult,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *StudioServer) importCSV(ctx context.Context, pool *pgxpool.Pool, tableName, content string) (map[string]interface{}, error) {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("CSV file must have at least a header and one data row")
+	}
+
+	// Parse header
+	header := s.parseCSVLine(lines[0])
+	if len(header) == 0 {
+		return nil, fmt.Errorf("invalid CSV header")
+	}
+
+	// Validate columns exist in table
+	if err := s.validateColumns(ctx, pool, tableName, header); err != nil {
+		return nil, err
+	}
+
+	// Begin transaction
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Prepare INSERT statement
+	placeholders := make([]string, len(header))
+	for i := range placeholders {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+	}
+	
+	query := "INSERT INTO " + tableName + " (" + strings.Join(header, ", ") + ") VALUES (" + strings.Join(placeholders, ", ") + ")"
+
+	// Insert data rows
+	insertedRows := 0
+	for i, line := range lines[1:] {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		values := s.parseCSVLine(line)
+		if len(values) != len(header) {
+			return nil, fmt.Errorf("row %d has %d values, expected %d", i+2, len(values), len(header))
+		}
+
+		// Convert values to interface slice
+		args := make([]interface{}, len(values))
+		for j, val := range values {
+			if val == "" {
+				args[j] = nil
+			} else {
+				args[j] = val
+			}
+		}
+
+		_, err := tx.Exec(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert row %d: %w", i+2, err)
+		}
+		insertedRows++
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return map[string]interface{}{
+		"inserted_rows": insertedRows,
+		"total_rows":    len(lines) - 1,
+	}, nil
+}
+
+func (s *StudioServer) parseCSVLine(line string) []string {
+	var result []string
+	var current strings.Builder
+	inQuotes := false
+	
+	for i := 0; i < len(line); i++ {
+		char := line[i]
+		
+		if char == '"' {
+			if inQuotes && i+1 < len(line) && line[i+1] == '"' {
+				// Escaped quote
+				current.WriteByte('"')
+				i++ // Skip next quote
+			} else {
+				// Toggle quote state
+				inQuotes = !inQuotes
+			}
+		} else if char == ',' && !inQuotes {
+			// End of field
+			result = append(result, current.String())
+			current.Reset()
+		} else {
+			current.WriteByte(char)
+		}
+	}
+	
+	// Add last field
+	result = append(result, current.String())
+	return result
+}
+
+func (s *StudioServer) importJSON(ctx context.Context, pool *pgxpool.Pool, tableName string, content []byte) (map[string]interface{}, error) {
+	var data []map[string]interface{}
+	if err := json.Unmarshal(content, &data); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("JSON file contains no data")
+	}
+
+	// Get column names from first row
+	columns := make([]string, 0, len(data[0]))
+	for col := range data[0] {
+		columns = append(columns, col)
+	}
+
+	// Validate columns exist in table
+	if err := s.validateColumns(ctx, pool, tableName, columns); err != nil {
+		return nil, err
+	}
+
+	// Begin transaction
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Prepare INSERT statement
+	placeholders := make([]string, len(columns))
+	for i := range placeholders {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+	}
+	
+	query := "INSERT INTO " + tableName + " (" + strings.Join(columns, ", ") + ") VALUES (" + strings.Join(placeholders, ", ") + ")"
+
+	// Insert data rows
+	insertedRows := 0
+	for i, row := range data {
+		args := make([]interface{}, len(columns))
+		for j, col := range columns {
+			args[j] = row[col]
+		}
+
+		_, err := tx.Exec(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to insert row %d: %w", i+1, err)
+		}
+		insertedRows++
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return map[string]interface{}{
+		"inserted_rows": insertedRows,
+		"total_rows":    len(data),
+	}, nil
+}
+
+func (s *StudioServer) importSQL(ctx context.Context, pool *pgxpool.Pool, content string) (map[string]interface{}, error) {
+	// Split content into individual statements
+	statements := strings.Split(content, ";")
+	
+	// Begin transaction
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	executedStatements := 0
+	for _, stmt := range statements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" || strings.HasPrefix(stmt, "--") {
+			continue
+		}
+
+		_, err := tx.Exec(ctx, stmt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute statement: %w", err)
+		}
+		executedStatements++
+	}
+
+	// Commit transaction
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return map[string]interface{}{
+		"executed_statements": executedStatements,
+	}, nil
+}
+
+func (s *StudioServer) validateColumns(ctx context.Context, pool *pgxpool.Pool, tableName string, columns []string) error {
+	query := `
+		SELECT column_name 
+		FROM information_schema.columns 
+		WHERE table_name = $1 AND table_schema = 'public'
+		ORDER BY ordinal_position`
+
+	rows, err := pool.Query(ctx, query, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to get table columns: %w", err)
+	}
+	defer rows.Close()
+
+	existingColumns := make(map[string]bool)
+	for rows.Next() {
+		var colName pgtype.Text
+		if err := rows.Scan(&colName); err != nil {
+			return fmt.Errorf("failed to scan column name: %w", err)
+		}
+		existingColumns[colName.String] = true
+	}
+
+	// Check if all import columns exist in table
+	var missingColumns []string
+	for _, col := range columns {
+		if !existingColumns[col] {
+			missingColumns = append(missingColumns, col)
+		}
+	}
+
+	if len(missingColumns) > 0 {
+		return fmt.Errorf("columns not found in table %s: %s", tableName, strings.Join(missingColumns, ", "))
+	}
+
+	return nil
+}
