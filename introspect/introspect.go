@@ -217,15 +217,15 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 		i.indexname,
 		i.tablename,
 		array_to_string(array_agg(a.attname), ',') as column_names,
-		i.indisunique,
+		idx.indisunique,
 		am.amname as index_type
 	FROM pg_indexes i
 	JOIN pg_class c ON c.relname = i.indexname
-	JOIN pg_index idx ON idx.indexrelname = i.indexname
+	JOIN pg_index idx ON idx.indexrelid = c.oid
 	JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
 	JOIN pg_am am ON am.oid = c.relam
 	WHERE i.tablename = $1 AND i.schemaname = 'public'
-	GROUP BY i.indexname, i.tablename, i.indisunique, am.amname
+	GROUP BY i.indexname, i.tablename, idx.indisunique, am.amname
 	ORDER BY i.indexname;
 	`
 

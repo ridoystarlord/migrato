@@ -10,8 +10,9 @@ import (
 var Version string
 
 var rootCmd = &cobra.Command{
-	Use:   "migrato",
-	Short: "A lightweight Prisma-like migration tool for Go",
+	Use:     "migrato",
+	Short:   "A lightweight Prisma-like migration tool for Go",
+	Version: Version,
 	Long: `migrato is a simple migration CLI.
 
 Examples:
@@ -20,7 +21,14 @@ Examples:
   migrato generate
   migrato migrate
 `,
-	Version: Version,
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version number of migrato",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("migrato version %s\n", Version)
+	},
 }
 
 // Execute runs the CLI
@@ -47,13 +55,7 @@ func init() {
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(logCmd)
 	rootCmd.AddCommand(studioCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	rootCmd.SetVersionTemplate("migrato version {{.Version}}\n")
-	rootCmd.Flags().BoolP("version", "v", false, "version for migrato")
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
-		if v, _ := cmd.Flags().GetBool("version"); v {
-			fmt.Printf("migrato version %s\n", Version)
-			os.Exit(0)
-		}
-	}
 }
