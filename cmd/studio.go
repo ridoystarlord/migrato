@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ridoystarlord/migrato/database"
 	"github.com/spf13/cobra"
@@ -61,6 +62,7 @@ func startStudioServer(port string) error {
 	http.HandleFunc("/", server.handleIndex)
 	http.HandleFunc("/api/tables", server.handleTables)
 	http.HandleFunc("/api/table/", server.handleTableData)
+	http.HandleFunc("/api/update/", server.handleUpdateData)
 	http.HandleFunc("/static/", server.handleStatic)
 
 	// Start server
@@ -633,6 +635,83 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func (s *StudioServer) handleUpdateData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "PUT" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract table name from URL
+	path := strings.TrimPrefix(r.URL.Path, "/api/update/")
+	if path == "" {
+		http.Error(w, "Table name required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate table name to prevent SQL injection
+	if !isValidTableName(path) {
+		http.Error(w, "Invalid table name", http.StatusBadRequest)
+		return
+	}
+
+	// Parse request body
+	var updateRequest struct {
+		RowID   string                 `json:"row_id"`
+		IDValue string                 `json:"id_value"`
+		Data    map[string]interface{} `json:"data"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateRequest); err != nil {
+		http.Error(w, "Invalid request body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get database pool
+	pool, err := s.getPool()
+	if err != nil {
+		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Validate the data against table schema
+	if err := s.validateUpdateData(ctx, pool, path, updateRequest.Data); err != nil {
+		http.Error(w, "Validation failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Build UPDATE query
+	query, args, err := s.buildUpdateQuery(path, updateRequest.RowID, updateRequest.IDValue, updateRequest.Data)
+	if err != nil {
+		http.Error(w, "Failed to build update query: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Execute update
+	result, err := pool.Exec(ctx, query, args...)
+	if err != nil {
+		http.Error(w, "Failed to update data: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if any rows were affected
+	if result.RowsAffected() == 0 {
+		http.Error(w, "No rows were updated", http.StatusNotFound)
+		return
+	}
+
+	// Return success response
+	response := map[string]interface{}{
+		"success":     true,
+		"message":     "Data updated successfully",
+		"rows_affected": result.RowsAffected(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 func (s *StudioServer) getPool() (*pgxpool.Pool, error) {
 	return database.GetPool()
 }
@@ -658,6 +737,7 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"        this.loading = false;\n" +
 			"        this.sidebarCollapsed = false;\n" +
 			"        this.isDarkMode = true;\n" +
+			"        this.editMode = false;\n" +
 			"        this.init();\n" +
 			"    }\n" +
 			"    async init() {\n" +
@@ -768,6 +848,11 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"        \n" +
 			"        // Add fade-in animation\n" +
 			"        tableView.classList.add('fade-in');\n" +
+			"        \n" +
+			"        // Enable inline editing if edit mode is active\n" +
+			"        if (this.editMode) {\n" +
+			"            this.enableInlineEditing();\n" +
+			"        }\n" +
 			"    }\n" +
 			"    createTableControls() {\n" +
 			"        const controls = document.createElement(\"div\");\n" +
@@ -776,6 +861,19 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"        const title = document.createElement(\"h2\");\n" +
 			"        title.className = 'text-2xl font-bold text-white';\n" +
 			"        title.textContent = this.currentTable;\n" +
+			"        \n" +
+			"        const rightControls = document.createElement(\"div\");\n" +
+			"        rightControls.className = 'flex items-center space-x-4';\n" +
+			"        \n" +
+			"        // Edit mode toggle button\n" +
+			"        const editToggle = document.createElement(\"button\");\n" +
+			"        editToggle.id = 'edit-mode-toggle';\n" +
+			"        editToggle.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors';\n" +
+			"        editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z\\\"></path></svg>Enable Edit Mode';\n" +
+			"        \n" +
+			"        editToggle.addEventListener('click', () => {\n" +
+			"            this.toggleEditMode();\n" +
+			"        });\n" +
 			"        \n" +
 			"        const searchBox = document.createElement(\"div\");\n" +
 			"        searchBox.className = 'relative';\n" +
@@ -793,8 +891,11 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"            }, 300);\n" +
 			"        });\n" +
 			"        \n" +
+			"        rightControls.appendChild(editToggle);\n" +
+			"        rightControls.appendChild(searchBox);\n" +
+			"        \n" +
 			"        controls.appendChild(title);\n" +
-			"        controls.appendChild(searchBox);\n" +
+			"        controls.appendChild(rightControls);\n" +
 			"        return controls;\n" +
 			"    }\n" +
 			"    createDataTable(data) {\n" +
@@ -829,9 +930,17 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"            tr.className = index % 2 === 0 ? 'bg-slate-800' : 'bg-slate-750';\n" +
 			"            tr.className += ' hover:bg-slate-700 transition-colors duration-150';\n" +
 			"            \n" +
-			"            Object.values(row).forEach(value => {\n" +
+			"            // Set row ID attributes for editing\n" +
+			"            const rowKeys = Object.keys(row);\n" +
+			"            const firstKey = rowKeys[0];\n" +
+			"            tr.setAttribute('data-row-id', firstKey);\n" +
+			"            tr.setAttribute('data-row-id-value', String(row[firstKey]));\n" +
+			"            \n" +
+			"            Object.entries(row).forEach(([key, value]) => {\n" +
 			"                const td = document.createElement(\"td\");\n" +
 			"                td.className = 'px-6 py-4 whitespace-nowrap text-sm text-slate-300';\n" +
+			"                td.setAttribute('data-column', key);\n" +
+			"                td.setAttribute('data-editable', 'true');\n" +
 			"                \n" +
 			"                if (value === null) {\n" +
 			"                    td.innerHTML = '<span class=\\\"text-slate-500 italic\\\">NULL</span>';\n" +
@@ -931,14 +1040,14 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"                        const searchInput = document.querySelector('input[placeholder*=\"Search\"]');\n" +
 			"                        if (searchInput) searchInput.focus();\n" +
 			"                        break;\n" +
-								"                    case 'b':\n" +
-					"                        e.preventDefault();\n" +
-					"                        this.toggleSidebar();\n" +
-					"                        break;\n" +
-					"                    case 't':\n" +
-					"                        e.preventDefault();\n" +
-					"                        this.toggleTheme();\n" +
-					"                        break;\n" +
+			"                    case 'b':\n" +
+			"                        e.preventDefault();\n" +
+			"                        this.toggleSidebar();\n" +
+			"                        break;\n" +
+			"                    case 't':\n" +
+			"                        e.preventDefault();\n" +
+			"                        this.toggleTheme();\n" +
+			"                        break;\n" +
 			"                }\n" +
 			"            }\n" +
 			"        });\n" +
@@ -997,6 +1106,139 @@ func (s *StudioServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 			"            this.isDarkMode = false;\n" +
 			"        }\n" +
 			"    }\n" +
+			"    toggleEditMode() {\n" +
+			"        this.editMode = !this.editMode;\n" +
+			"        const editToggle = document.getElementById('edit-mode-toggle');\n" +
+			"        \n" +
+			"        if (this.editMode) {\n" +
+			"            editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M5 13l4 4L19 7\\\"></path></svg>Disable Edit Mode';\n" +
+			"            editToggle.className = 'px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:ring-2 focus:ring-red-500 transition-colors';\n" +
+			"            this.enableInlineEditing();\n" +
+			"        } else {\n" +
+			"            editToggle.innerHTML = '<svg class=\\\"w-4 h-4 inline mr-2\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" viewBox=\\\"0 0 24 24\\\"><path stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" stroke-width=\\\"2\\\" d=\\\"M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z\\\"></path></svg>Enable Edit Mode';\n" +
+			"            editToggle.className = 'px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors';\n" +
+			"            this.disableInlineEditing();\n" +
+			"        }\n" +
+			"    }\n" +
+			"    enableInlineEditing() {\n" +
+			"        const cells = document.querySelectorAll('td[data-editable=\"true\"]');\n" +
+			"        cells.forEach(cell => {\n" +
+			"            cell.style.cursor = 'pointer';\n" +
+			"            cell.classList.add('hover:bg-slate-600');\n" +
+			"            cell.addEventListener('click', this.handleCellClick.bind(this));\n" +
+			"        });\n" +
+			"    }\n" +
+			"    disableInlineEditing() {\n" +
+			"        const cells = document.querySelectorAll('td[data-editable=\"true\"]');\n" +
+			"        cells.forEach(cell => {\n" +
+			"            cell.style.cursor = 'default';\n" +
+			"            cell.classList.remove('hover:bg-slate-600');\n" +
+			"            cell.removeEventListener('click', this.handleCellClick.bind(this));\n" +
+			"        });\n" +
+			"    }\n" +
+			"    handleCellClick(event) {\n" +
+			"        if (!this.editMode) return;\n" +
+			"        \n" +
+			"        const cell = event.target;\n" +
+			"        const originalValue = cell.textContent;\n" +
+			"        const columnName = cell.getAttribute('data-column');\n" +
+			"        const rowId = cell.closest('tr').getAttribute('data-row-id');\n" +
+			"        const rowIdValue = cell.closest('tr').getAttribute('data-row-id-value');\n" +
+			"        \n" +
+			"        // Create input field\n" +
+			"        const input = document.createElement('input');\n" +
+			"        input.type = 'text';\n" +
+			"        input.value = originalValue === 'NULL' ? '' : originalValue;\n" +
+			"        input.className = 'w-full px-2 py-1 bg-slate-700 border border-slate-500 rounded text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500';\n" +
+			"        \n" +
+			"        // Replace cell content with input\n" +
+			"        cell.innerHTML = '';\n" +
+			"        cell.appendChild(input);\n" +
+			"        input.focus();\n" +
+			"        input.select();\n" +
+			"        \n" +
+			"        // Handle save on Enter or blur\n" +
+			"        const saveEdit = () => {\n" +
+			"            const newValue = input.value.trim();\n" +
+			"            const finalValue = newValue === '' ? null : newValue;\n" +
+			"            \n" +
+			"            if (finalValue !== (originalValue === 'NULL' ? null : originalValue)) {\n" +
+			"                this.saveCellEdit(rowId, rowIdValue, columnName, finalValue);\n" +
+			"            } else {\n" +
+			"                this.restoreCellContent(cell, originalValue);\n" +
+			"            }\n" +
+			"        };\n" +
+			"        \n" +
+			"        const cancelEdit = () => {\n" +
+			"            this.restoreCellContent(cell, originalValue);\n" +
+			"        };\n" +
+			"        \n" +
+			"        input.addEventListener('blur', saveEdit);\n" +
+			"        input.addEventListener('keydown', (e) => {\n" +
+			"            if (e.key === 'Enter') {\n" +
+			"                saveEdit();\n" +
+			"            } else if (e.key === 'Escape') {\n" +
+			"                cancelEdit();\n" +
+			"            }\n" +
+			"        });\n" +
+			"    }\n" +
+			"    async saveCellEdit(rowId, rowIdValue, columnName, value) {\n" +
+			"        try {\n" +
+			"            const response = await fetch(`/api/update/${this.currentTable}`, {\n" +
+			"                method: 'PUT',\n" +
+			"                headers: {\n" +
+			"                    'Content-Type': 'application/json',\n" +
+			"                },\n" +
+			"                body: JSON.stringify({\n" +
+			"                    row_id: rowId,\n" +
+			"                    id_value: rowIdValue,\n" +
+			"                    data: {\n" +
+			"                        [columnName]: value\n" +
+			"                    }\n" +
+			"                })\n" +
+			"            });\n" +
+			"            \n" +
+			"            if (response.ok) {\n" +
+			"                const result = await response.json();\n" +
+			"                this.showNotification('Data updated successfully!', 'success');\n" +
+			"                // Refresh the table data\n" +
+			"                await this.loadTableData();\n" +
+			"            } else {\n" +
+			"                const error = await response.text();\n" +
+			"                this.showNotification('Update failed: ' + error, 'error');\n" +
+			"            }\n" +
+			"        } catch (error) {\n" +
+			"            console.error('Error saving edit:', error);\n" +
+			"            this.showNotification('Update failed: ' + error.message, 'error');\n" +
+			"        }\n" +
+			"    }\n" +
+			"    restoreCellContent(cell, value) {\n" +
+			"        if (value === 'NULL') {\n" +
+			"            cell.innerHTML = '<span class=\\\"text-slate-500 italic\\\">NULL</span>';\n" +
+			"        } else {\n" +
+			"            cell.textContent = value;\n" +
+			"        }\n" +
+			"    }\n" +
+			"    showNotification(message, type = 'info') {\n" +
+			"        const notification = document.createElement('div');\n" +
+			"        notification.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 transition-all duration-300 transform translate-x-full ${type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600'} text-white`;\n" +
+			"        notification.textContent = message;\n" +
+			"        \n" +
+			"        document.body.appendChild(notification);\n" +
+			"        \n" +
+			"        // Animate in\n" +
+			"        setTimeout(() => {\n" +
+			"            notification.classList.remove('translate-x-full');\n" +
+			"        }, 100);\n" +
+			"        \n" +
+			"        // Remove after 3 seconds\n" +
+			"        setTimeout(() => {\n" +
+			"            notification.classList.add('translate-x-full');\n" +
+			"            setTimeout(() => {\n" +
+			"                document.body.removeChild(notification);\n" +
+			"            }, 300);\n" +
+			"        }, 3000);\n" +
+			"    }\n" +
 			"    showError(message) {\n" +
 			"        const tableView = document.getElementById(\"tableView\");\n" +
 			"        tableView.innerHTML = '<div class=\\\"flex-1 flex items-center justify-center\\\"><div class=\\\"text-center\\\"><div class=\\\"text-4xl mb-4\\\">⚠️</div><div class=\\\"text-red-400 font-medium text-lg\\\">' + message + '</div></div></div>';\n" +
@@ -1034,4 +1276,127 @@ func isValidTableName(tableName string) bool {
 	}
 	
 	return true
+}
+
+func (s *StudioServer) validateUpdateData(ctx context.Context, pool *pgxpool.Pool, tableName string, data map[string]interface{}) error {
+	// Get table schema to validate data types
+	query := `
+		SELECT column_name, data_type, is_nullable, column_default
+		FROM information_schema.columns 
+		WHERE table_name = $1 AND table_schema = 'public'
+		ORDER BY ordinal_position`
+
+	rows, err := pool.Query(ctx, query, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to get table schema: %w", err)
+	}
+	defer rows.Close()
+
+	columnInfo := make(map[string]struct {
+		DataType    string
+		IsNullable  string
+		HasDefault  bool
+	})
+
+	for rows.Next() {
+		var colName, dataType, isNullable pgtype.Text
+		var columnDefault pgtype.Text
+		if err := rows.Scan(&colName, &dataType, &isNullable, &columnDefault); err != nil {
+			return fmt.Errorf("failed to scan column info: %w", err)
+		}
+		columnInfo[colName.String] = struct {
+			DataType    string
+			IsNullable  string
+			HasDefault  bool
+		}{
+			DataType:   dataType.String,
+			IsNullable: isNullable.String,
+			HasDefault: columnDefault.Valid,
+		}
+	}
+
+	// Validate each field in the update data
+	for fieldName, value := range data {
+		colInfo, exists := columnInfo[fieldName]
+		if !exists {
+			return fmt.Errorf("column '%s' does not exist in table '%s'", fieldName, tableName)
+		}
+
+		// Check if value is null
+		if value == nil {
+			if colInfo.IsNullable == "NO" && !colInfo.HasDefault {
+				return fmt.Errorf("column '%s' cannot be null", fieldName)
+			}
+			continue
+		}
+
+		// Basic type validation
+		if err := s.validateFieldType(fieldName, value, colInfo.DataType); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *StudioServer) validateFieldType(fieldName string, value interface{}, expectedType string) error {
+	switch expectedType {
+	case "integer", "bigint", "smallint":
+		switch v := value.(type) {
+		case float64:
+			if v != float64(int64(v)) {
+				return fmt.Errorf("column '%s' expects integer, got float", fieldName)
+			}
+		case int, int64, int32:
+			// Valid
+		default:
+			return fmt.Errorf("column '%s' expects integer, got %T", fieldName, value)
+		}
+	case "numeric", "decimal", "real", "double precision":
+		switch value.(type) {
+		case float64, int, int64, int32:
+			// Valid
+		default:
+			return fmt.Errorf("column '%s' expects numeric, got %T", fieldName, value)
+		}
+	case "boolean":
+		switch value.(type) {
+		case bool:
+			// Valid
+		default:
+			return fmt.Errorf("column '%s' expects boolean, got %T", fieldName, value)
+		}
+	case "text", "character varying", "character", "uuid", "date", "timestamp", "timestamptz":
+		switch value.(type) {
+		case string:
+			// Valid
+		default:
+			return fmt.Errorf("column '%s' expects text, got %T", fieldName, value)
+		}
+	}
+	return nil
+}
+
+func (s *StudioServer) buildUpdateQuery(tableName, rowID, idValue string, data map[string]interface{}) (string, []interface{}, error) {
+	if len(data) == 0 {
+		return "", nil, fmt.Errorf("no data to update")
+	}
+
+	// Build SET clause
+	setClause := make([]string, 0, len(data))
+	args := make([]interface{}, 0, len(data)+1)
+	argIndex := 1
+
+	for fieldName, value := range data {
+		setClause = append(setClause, fmt.Sprintf("%s = $%d", fieldName, argIndex))
+		args = append(args, value)
+		argIndex++
+	}
+
+	// Add WHERE clause
+	whereClause := fmt.Sprintf("%s = $%d", rowID, argIndex)
+	args = append(args, idValue)
+
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", tableName, strings.Join(setClause, ", "), whereClause)
+	return query, args, nil
 } 

@@ -149,7 +149,7 @@ go build -o migrato ./main.go
 - `migrato log` — Show recent migration activities
   - `-l, --limit` — Limit number of log entries to show (default: 50)
   - `-f, --follow` — Follow logs in real-time (future feature)
-- `migrato studio` — Launch web-based database browser
+- `migrato studio` — Launch web-based database browser with inline editing
   - `--port` — Port to run the web server on (default: 8080)
 
 ## Schema Example
@@ -768,6 +768,7 @@ migrato studio --port 3000       # Start on custom port
 - **Table Browser**: View all tables in your database
 - **Data Viewer**: Browse table data with pagination
 - **Search & Filter**: Search across text columns
+- **Inline Editing**: Real-time data editing with validation
 - **Responsive Design**: Works on desktop and mobile
 - **Real-time Updates**: Live data from your database
 
@@ -803,7 +804,42 @@ The web interface provides:
 - **Pagination**: Navigate through large datasets
 - **Responsive Layout**: Works on all screen sizes
 
-Perfect for exploring your database during development!
+### Inline Editing
+
+Migrato Studio includes powerful inline editing capabilities:
+
+#### Enable Edit Mode
+
+1. **Click the "Enable Edit Mode" button** in the table view
+2. **Click on any cell** to start editing
+3. **Press Enter** to save or **Escape** to cancel
+4. **Click outside** the cell to save changes
+
+#### Features
+
+- **Real-time Validation**: Server-side validation of data types and constraints
+- **Visual Feedback**: Success/error notifications for all operations
+- **Keyboard Shortcuts**: Enter to save, Escape to cancel
+- **Data Type Support**: Handles text, numbers, booleans, dates, and NULL values
+- **Constraint Validation**: Respects NOT NULL, unique, and foreign key constraints
+- **Error Handling**: Clear error messages for validation failures
+
+#### Supported Operations
+
+- **Text Fields**: Edit string values with full validation
+- **Numeric Fields**: Edit integers and decimals with type checking
+- **Boolean Fields**: Toggle true/false values
+- **NULL Values**: Set fields to NULL (if allowed by schema)
+- **Date/Time**: Edit timestamp fields with proper formatting
+
+#### Safety Features
+
+- **Server-side Validation**: All changes validated against database schema
+- **Transaction Safety**: Updates use proper SQL transactions
+- **Error Recovery**: Failed updates don't affect the original data
+- **Audit Trail**: All changes logged for tracking
+
+Perfect for exploring and managing your database during development!
 
 ## Health Checks & Validation
 
