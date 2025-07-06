@@ -212,14 +212,37 @@ func getForeignKeys(ctx context.Context, pool *pgxpool.Pool, tableName string) (
 }
 
 func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]ExistingIndex, error) {
+	// Use a more reliable query that works across PostgreSQL versions
 	indexesQuery := `
 	SELECT
-		indexname,
-		tablename,
-		indexdef
-	FROM pg_indexes
-	WHERE tablename = $1 AND schemaname = 'public'
-	ORDER BY indexname;
+		i.indexname,
+		i.tablename,
+		COALESCE(
+			(SELECT string_agg(a.attname, ',' ORDER BY array_position(idx.indkey, a.attnum))
+			 FROM pg_index idx
+			 JOIN pg_class c ON c.oid = idx.indexrelid
+			 JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = ANY(idx.indkey)
+			 WHERE c.relname = i.indexname), 
+			''
+		) as column_names,
+		COALESCE(
+			(SELECT idx.indisunique
+			 FROM pg_index idx
+			 JOIN pg_class c ON c.oid = idx.indexrelid
+			 WHERE c.relname = i.indexname),
+			false
+		) as is_unique,
+		COALESCE(
+			(SELECT am.amname
+			 FROM pg_index idx
+			 JOIN pg_class c ON c.oid = idx.indexrelid
+			 JOIN pg_am am ON am.oid = c.relam
+			 WHERE c.relname = i.indexname),
+			'btree'
+		) as index_type
+	FROM pg_indexes i
+	WHERE i.tablename = $1 AND i.schemaname = 'public'
+	ORDER BY i.indexname;
 	`
 
 	rows, err := pool.Query(ctx, indexesQuery, tableName)
@@ -231,20 +254,17 @@ func getIndexes(ctx context.Context, pool *pgxpool.Pool, tableName string) ([]Ex
 	var indexes []ExistingIndex
 	for rows.Next() {
 		var idx ExistingIndex
-		var indexDef string
+		var columnNames string
 		if err := rows.Scan(
 			&idx.IndexName,
 			&idx.TableName,
-			&indexDef,
+			&columnNames,
+			&idx.IsUnique,
+			&idx.IndexType,
 		); err != nil {
 			return nil, fmt.Errorf("scanning index: %v", err)
 		}
-		
-		// Parse index definition to extract columns and properties
-		idx.Columns = extractColumnsFromIndexDef(indexDef)
-		idx.IsUnique = strings.Contains(strings.ToLower(indexDef), "unique")
-		idx.IndexType = extractIndexType(indexDef)
-		
+		idx.Columns = extractColumnsFromIndexDef(columnNames)
 		indexes = append(indexes, idx)
 	}
 

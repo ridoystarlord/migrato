@@ -118,26 +118,6 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			}
 		}
 
-		// Check for foreign keys to add - SAFE
-		existingFKs := map[string]introspect.ExistingForeignKey{}
-		for _, fk := range table.ForeignKeys {
-			existingFKs[fk.ColumnName] = fk
-		}
-
-		for _, col := range model.Columns {
-			if col.ForeignKey != nil {
-				if _, exists := existingFKs[col.Name]; !exists {
-					// Foreign key doesn't exist: ADD FOREIGN KEY
-					ops = append(ops, Operation{
-						Type:        AddForeignKey,
-						TableName:   model.TableName,
-						ColumnName:  col.Name,
-						ForeignKey:  col.ForeignKey,
-					})
-				}
-			}
-		}
-
 		// Check for indexes to add - SAFE, but be more conservative
 		existingIndexes := map[string]introspect.ExistingIndex{}
 		for _, idx := range table.Indexes {
@@ -177,6 +157,26 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 						Type:      CreateIndex,
 						TableName: model.TableName,
 						Index:     &index,
+					})
+				}
+			}
+		}
+
+		// Check for foreign keys to add - SAFE, but be more conservative
+		existingFKs := map[string]introspect.ExistingForeignKey{}
+		for _, fk := range table.ForeignKeys {
+			existingFKs[fk.ColumnName] = fk
+		}
+
+		for _, col := range model.Columns {
+			if col.ForeignKey != nil {
+				if _, exists := existingFKs[col.Name]; !exists {
+					// Foreign key doesn't exist: ADD FOREIGN KEY
+					ops = append(ops, Operation{
+						Type:        AddForeignKey,
+						TableName:   model.TableName,
+						ColumnName:  col.Name,
+						ForeignKey:  col.ForeignKey,
 					})
 				}
 			}
@@ -235,8 +235,13 @@ func needsSignificantColumnModification(existing introspect.ExistingColumn, mode
 		// Normalize default values for comparison
 		existingStr := normalizeDefaultValue(*existingDefault)
 		modelStr := normalizeDefaultValue(*modelDefault)
+		
+		// Be more lenient with default value comparisons
 		if existingStr != modelStr {
-			return true
+			// Check if they're functionally equivalent
+			if !areDefaultValuesEquivalent(existingStr, modelStr) {
+				return true
+			}
 		}
 	}
 
@@ -310,10 +315,14 @@ func isCompatibleType(existingType, modelType string) bool {
 		"int2": {"smallint"},
 		"numeric": {"decimal"},
 		"decimal": {"numeric"},
-		"timestamp": {"timestamp without time zone"},
-		"timestamp without time zone": {"timestamp"},
-		"timestamptz": {"timestamp with time zone"},
-		"timestamp with time zone": {"timestamptz"},
+		"timestamp": {"timestamp without time zone", "timestamp with time zone"},
+		"timestamp without time zone": {"timestamp", "timestamp with time zone"},
+		"timestamp with time zone": {"timestamp", "timestamp without time zone"},
+		"timestamptz": {"timestamp", "timestamp with time zone", "timestamp without time zone"},
+		"serial": {"integer", "int4"}, // serial is compatible with integer
+		"bigserial": {"bigint", "int8"}, // bigserial is compatible with bigint
+		"bool": {"boolean"},
+		"boolean": {"bool"},
 	}
 	
 	if allowed, exists := compatibleTypes[existingBase]; exists {
@@ -350,5 +359,68 @@ func normalizeDefaultValue(defaultVal string) string {
 	// Normalize function calls
 	defaultVal = strings.ToLower(defaultVal)
 	
+	// Remove type casts like ::text, ::integer, etc.
+	if idx := strings.Index(defaultVal, "::"); idx != -1 {
+		defaultVal = defaultVal[:idx]
+	}
+	
+	// Normalize common function variations
+	defaultVal = strings.ReplaceAll(defaultVal, "now()", "now()")
+	defaultVal = strings.ReplaceAll(defaultVal, "current_timestamp", "now()")
+	defaultVal = strings.ReplaceAll(defaultVal, "current_timestamp()", "now()")
+	
+	// Normalize boolean values
+	if defaultVal == "true" || defaultVal == "false" {
+		return defaultVal
+	}
+	
+	// Normalize string literals
+	if strings.HasPrefix(defaultVal, "'") && strings.HasSuffix(defaultVal, "'") {
+		return strings.Trim(defaultVal, "'")
+	}
+	
 	return defaultVal
+}
+
+// areDefaultValuesEquivalent checks if two default values are functionally equivalent
+func areDefaultValuesEquivalent(existing, model string) bool {
+	// Normalize both values
+	existing = strings.ToLower(strings.TrimSpace(existing))
+	model = strings.ToLower(strings.TrimSpace(model))
+	
+	// If they're exactly the same, they're equivalent
+	if existing == model {
+		return true
+	}
+	
+	// Check for common equivalent patterns
+	equivalents := map[string][]string{
+		"now()": {"current_timestamp", "current_timestamp()"},
+		"current_timestamp": {"now()", "current_timestamp()"},
+		"current_timestamp()": {"now()", "current_timestamp"},
+		"true": {"1", "yes"},
+		"false": {"0", "no"},
+		"active": {"'active'"},
+		"draft": {"'draft'"},
+	}
+	
+	// Check if they're in the same equivalence group
+	for key, values := range equivalents {
+		if existing == key {
+			for _, val := range values {
+				if model == val {
+					return true
+				}
+			}
+		}
+		if model == key {
+			for _, val := range values {
+				if existing == val {
+					return true
+				}
+			}
+		}
+	}
+	
+	return false
 }

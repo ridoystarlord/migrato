@@ -160,15 +160,28 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.DropColumn:
-			// For rollback, we need to recreate the column
-			// Note: This is simplified - we don't have the original column definition
-			// In a real implementation, you might want to store the original column definition
-			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s;`,
-				op.TableName,
-				op.ColumnName,
-				"text", // Default type - ideally we'd store the original type
-			)
-			sqlStatements = append(sqlStatements, stmt)
+			// For rollback, we need to recreate the column with original definition
+			if op.OldColumn != nil {
+				stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" %s`,
+					op.TableName,
+					op.ColumnName,
+					op.OldColumn.DataType,
+				)
+				if !op.OldColumn.IsNullable {
+					stmt += " NOT NULL"
+				}
+				if op.OldColumn.ColumnDefault != nil {
+					stmt += fmt.Sprintf(" DEFAULT %s", formatDefaultValue(*op.OldColumn.ColumnDefault))
+				}
+				sqlStatements = append(sqlStatements, stmt+";")
+			} else {
+				// Fallback: create a basic text column if we don't have the original definition
+				stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD COLUMN "%s" text;`,
+					op.TableName,
+					op.ColumnName,
+				)
+				sqlStatements = append(sqlStatements, stmt)
+			}
 
 		case diff.ModifyColumn:
 			// For rollback, we need to revert the column modifications
@@ -190,18 +203,27 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.DropTable:
-			// For rollback, we need to recreate the table
-			// Note: This is simplified - we don't have the original table definition
-			stmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (id serial PRIMARY KEY);`,
-				op.TableName,
-			)
-			sqlStatements = append(sqlStatements, stmt)
+			// For rollback, we need to recreate the table with original definition
+			if len(op.Columns) > 0 {
+				stmt, err := generateCreateTable(op)
+				if err != nil {
+					return nil, fmt.Errorf("generate CREATE TABLE rollback: %v", err)
+				}
+				sqlStatements = append(sqlStatements, stmt)
+			} else {
+				// Fallback: create a basic table if we don't have the original definition
+				stmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (id serial PRIMARY KEY);`,
+					op.TableName,
+				)
+				sqlStatements = append(sqlStatements, stmt)
+			}
 
 		case diff.AddForeignKey:
-			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP CONSTRAINT "fk_%s_%s";`,
+			// For rollback, drop the foreign key constraint
+			constraintName := fmt.Sprintf("fk_%s_%s", op.TableName, op.ForeignKey.ReferencesTable)
+			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP CONSTRAINT "%s";`,
 				op.TableName,
-				op.TableName,
-				op.ForeignKey.ReferencesTable,
+				constraintName,
 			)
 			sqlStatements = append(sqlStatements, stmt)
 
@@ -210,7 +232,7 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY ("%s") REFERENCES "%s" ("%s")`,
 				op.TableName,
 				op.FKName,
-				op.ColumnName, // We need to store the column name in the operation
+				op.ColumnName,
 				op.ForeignKey.ReferencesTable,
 				op.ForeignKey.ReferencesColumn,
 			)
@@ -230,11 +252,11 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 
 		case diff.DropIndex:
 			// For rollback, we need to recreate the index
-			// Note: This is simplified - we don't have the original index definition
+			// Note: We don't have the original index definition, so we'll create a basic index
 			stmt := fmt.Sprintf(`CREATE INDEX "%s" ON "%s" ("%s");`,
 				op.IndexName,
 				op.TableName,
-				"column_name", // Placeholder - ideally we'd store the original definition
+				op.ColumnName, // Use the column name if available
 			)
 			sqlStatements = append(sqlStatements, stmt)
 

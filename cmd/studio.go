@@ -47,8 +47,6 @@ The interface will be available at http://localhost:8080 by default.`,
 }
 
 func init() {
-	rootCmd.AddCommand(studioCmd)
-	
 	// Add studio-specific flags
 	studioCmd.Flags().String("port", "8080", "Port to run the web server on")
 	viper.BindPFlag("studio.port", studioCmd.Flags().Lookup("port"))
@@ -384,7 +382,7 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
     <!-- Main Content Area -->
     <div class="flex h-[calc(100vh-4rem)]">
         <!-- Sidebar -->
-        <aside id="sidebar" class="w-80 bg-slate-800 border-r border-slate-700 flex flex-col transition-all duration-300 ease-in-out">
+        <aside id="sidebar" class="w-64 bg-slate-800 border-r border-slate-700 flex flex-col transition-all duration-300 ease-in-out">
             <div class="p-6 border-b border-slate-700">
                 <div class="flex items-center justify-between">
                     <div>
@@ -399,7 +397,7 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
                 </div>
             </div>
             <div class="flex-1 overflow-y-auto">
-                <div id="tableList" class="p-4 space-y-1">
+                <div id="tableList" class="p-3 space-y-1">
                     <div class="text-slate-400 italic text-sm loading-dots">Loading tables</div>
                 </div>
             </div>
@@ -455,22 +453,21 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             <!-- Relationships Tab -->
             <div id="relationships-view" class="tab-content hidden h-full flex flex-col">
                 <div class="flex-1 p-6">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
-                                Table Relationships
+                    <div class="bg-slate-800 border border-slate-700 rounded-lg p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-xl font-semibold text-white">
+                                Database Relationships
                             </h2>
                             <div class="flex space-x-2">
-                                <button id="mermaid-view" class="btn btn-primary">Mermaid</button>
-                                <button id="graph-view" class="btn btn-secondary">Interactive Graph</button>
-                                <button id="tree-view" class="btn btn-secondary">Tree View</button>
+                                <button id="mermaid-view" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium">Mermaid</button>
+                                <button id="text-view" class="px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors text-sm font-medium">Text View</button>
                             </div>
                         </div>
                         
-                        <div id="relationship-container" class="border rounded-lg p-4 min-h-96">
-                            <div class="text-center text-gray-500 dark:text-gray-400">
-                                <div class="text-4xl mb-4">🔗</div>
-                                <p>Loading relationships...</p>
+                        <div id="relationship-container" class="border border-slate-700 rounded-lg p-6 min-h-96 bg-slate-900">
+                            <div class="text-center text-slate-400">
+                                <div class="text-4xl mb-4 opacity-50">🔗</div>
+                                <p class="text-lg">Loading relationships...</p>
                             </div>
                         </div>
                     </div>
@@ -504,12 +501,13 @@ func (s *StudioServer) handleTables(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	// Query to get all tables
+	// Query to get all tables (excluding system tables)
 	query := `
 		SELECT table_name 
 		FROM information_schema.tables 
 		WHERE table_schema = 'public' 
 		AND table_type = 'BASE TABLE'
+		AND table_name NOT IN ('schema_migrations', 'migration_logs')
 		ORDER BY table_name
 	`
 
@@ -631,6 +629,25 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
+	// Get columns in schema order
+	colQuery := `SELECT column_name FROM information_schema.columns WHERE table_name = $1 AND table_schema = 'public' ORDER BY ordinal_position`
+	colRows, err := pool.Query(ctx, colQuery, path)
+	if err != nil {
+		http.Error(w, "Failed to get column order: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer colRows.Close()
+
+	columns := make([]string, 0)
+	for colRows.Next() {
+		var colName string
+		if err := colRows.Scan(&colName); err != nil {
+			http.Error(w, "Failed to scan column name: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		columns = append(columns, colName)
+	}
+
 	// Build query with search
 	var query string
 	var args []interface{}
@@ -693,17 +710,9 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	// Get column names
-	fieldDescriptions := rows.FieldDescriptions()
-	columns := make([]string, len(fieldDescriptions))
-	for i, fd := range fieldDescriptions {
-		columns[i] = string(fd.Name)
-	}
-
 	// Scan data
 	var data []map[string]interface{}
 	for rows.Next() {
-		// Create a slice of interface{} to hold the values
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
 		for i := range values {
@@ -715,7 +724,6 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Convert to map
 		row := make(map[string]interface{})
 		for i, col := range columns {
 			val := values[i]
@@ -756,11 +764,12 @@ func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {
 		total = len(data)
 	}
 
-	response := TableData{
-		Data:  data,
-		Total: total,
-		Page:  page,
-		Limit: limit,
+	response := map[string]interface{}{
+		"data":  data,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+		"columns": columns,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

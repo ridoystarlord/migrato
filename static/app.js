@@ -43,16 +43,18 @@ class MigratoStudio {
     tables.forEach((table, index) => {
       const item = document.createElement("div");
       item.className =
-        "group flex items-center space-x-3 px-4 py-3 rounded-lg cursor-pointer hover:bg-slate-700 transition-all duration-200 text-sm font-medium text-slate-300 hover:text-white slide-in";
-      item.style.animationDelay = index * 50 + "ms";
+        "group flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-slate-700 transition-all duration-200 text-sm font-medium text-slate-300 hover:text-white slide-in table-item";
+      item.style.animationDelay = index * 30 + "ms";
+      item.setAttribute("data-table", table);
 
       const icon = document.createElement("div");
       icon.className =
-        "w-5 h-5 text-slate-500 group-hover:text-blue-400 transition-colors";
-      icon.innerHTML = "TB";
+        "w-4 h-4 text-slate-500 group-hover:text-blue-400 transition-colors flex-shrink-0";
+      icon.innerHTML = "📋";
 
       const text = document.createElement("span");
       text.textContent = table;
+      text.className = "truncate";
 
       item.appendChild(icon);
       item.appendChild(text);
@@ -65,26 +67,28 @@ class MigratoStudio {
     this.currentTable = tableName;
     this.currentPage = 1;
 
-    // Update active state
-    document.querySelectorAll("[onclick*='selectTable']").forEach((item) => {
+    // Clear all active states
+    document.querySelectorAll(".table-item").forEach((item) => {
       item.classList.remove("bg-blue-600", "text-white");
       item.classList.add("text-slate-300", "hover:bg-slate-700");
-      item.querySelector("div").classList.remove("text-blue-400");
-      item.querySelector("div").classList.add("text-slate-500");
+      const icon = item.querySelector("div");
+      if (icon) {
+        icon.classList.remove("text-blue-400");
+        icon.classList.add("text-slate-500");
+      }
     });
 
-    event.target
-      .closest("div")
-      .classList.remove("text-slate-300", "hover:bg-slate-700");
-    event.target.closest("div").classList.add("bg-blue-600", "text-white");
-    event.target
-      .closest("div")
-      .querySelector("div")
-      .classList.remove("text-slate-500");
-    event.target
-      .closest("div")
-      .querySelector("div")
-      .classList.add("text-blue-400");
+    // Set active state for selected table
+    const selectedItem = document.querySelector(`[data-table="${tableName}"]`);
+    if (selectedItem) {
+      selectedItem.classList.remove("text-slate-300", "hover:bg-slate-700");
+      selectedItem.classList.add("bg-blue-600", "text-white");
+      const icon = selectedItem.querySelector("div");
+      if (icon) {
+        icon.classList.remove("text-slate-500");
+        icon.classList.add("text-blue-400");
+      }
+    }
 
     await this.loadTableData();
   }
@@ -131,7 +135,7 @@ class MigratoStudio {
     }
 
     const controls = this.createTableControls();
-    const table = this.createDataTable(data.data);
+    const table = this.createDataTable(data.data, data.columns);
     const pagination = this.createPagination(data);
 
     tableView.innerHTML = "";
@@ -242,7 +246,10 @@ class MigratoStudio {
     return controls;
   }
 
-  createDataTable(data) {
+  createDataTable(data, columns) {
+    if (!columns || columns.length === 0) {
+      columns = data[0] ? Object.keys(data[0]) : [];
+    }
     const tableContainer = document.createElement("div");
     tableContainer.className =
       "flex-1 overflow-hidden bg-slate-800 rounded-lg border border-slate-700";
@@ -251,16 +258,17 @@ class MigratoStudio {
     tableWrapper.className = "h-full overflow-auto";
 
     const table = document.createElement("table");
-    table.className = "min-w-full divide-y divide-slate-700";
+    table.className = "min-w-full";
 
     const thead = document.createElement("thead");
-    thead.className = "bg-slate-700 sticky top-0";
+    thead.className = "bg-slate-700 sticky top-0 z-10";
     const headerRow = document.createElement("tr");
 
-    Object.keys(data[0]).forEach((key) => {
+    columns.forEach((key, idx) => {
       const th = document.createElement("th");
       th.className =
-        "px-6 py-4 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider";
+        "px-3 py-2 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider border-b border-slate-600" +
+        (idx !== columns.length - 1 ? " border-r border-slate-700" : "");
       th.textContent = key;
       headerRow.appendChild(th);
     });
@@ -269,12 +277,13 @@ class MigratoStudio {
     table.appendChild(thead);
 
     const tbody = document.createElement("tbody");
-    tbody.className = "bg-slate-800 divide-y divide-slate-700";
+    tbody.className = "bg-slate-800";
 
     data.forEach((row, index) => {
       const tr = document.createElement("tr");
-      tr.className = index % 2 === 0 ? "bg-slate-800" : "bg-slate-750";
-      tr.className += " hover:bg-slate-700 transition-colors duration-150";
+      tr.className =
+        (index % 2 === 0 ? "bg-slate-800" : "bg-slate-750") +
+        " hover:bg-slate-700 transition-colors duration-150";
 
       // Set row ID attributes for editing
       const rowKeys = Object.keys(row);
@@ -282,16 +291,28 @@ class MigratoStudio {
       tr.setAttribute("data-row-id", firstKey);
       tr.setAttribute("data-row-id-value", String(row[firstKey]));
 
-      Object.entries(row).forEach(([key, value]) => {
+      columns.forEach((key, idx) => {
+        const value = row[key];
         const td = document.createElement("td");
-        td.className = "px-6 py-4 whitespace-nowrap text-sm text-slate-300";
+        td.className =
+          "px-3 py-2 text-sm text-slate-300 border-b border-slate-700" +
+          (idx !== columns.length - 1 ? " border-r border-slate-700" : "");
         td.setAttribute("data-column", key);
         td.setAttribute("data-editable", "true");
 
         if (value === null) {
-          td.innerHTML = '<span class="text-slate-500 italic">NULL</span>';
+          td.innerHTML =
+            '<span class="text-slate-500 italic text-xs">NULL</span>';
         } else {
-          td.textContent = String(value);
+          const valueStr = String(value);
+          if (valueStr.length > 50) {
+            td.innerHTML = `<span title="${valueStr}">${valueStr.substring(
+              0,
+              50
+            )}...</span>`;
+          } else {
+            td.textContent = valueStr;
+          }
         }
 
         tr.appendChild(td);
@@ -427,8 +448,7 @@ class MigratoStudio {
 
     // Relationship view buttons
     const mermaidView = document.getElementById("mermaid-view");
-    const graphView = document.getElementById("graph-view");
-    const treeView = document.getElementById("tree-view");
+    const textView = document.getElementById("text-view");
 
     if (mermaidView) {
       mermaidView.addEventListener("click", () => {
@@ -438,16 +458,8 @@ class MigratoStudio {
       });
     }
 
-    if (graphView) {
-      graphView.addEventListener("click", () => {
-        this.loadRelationships().then((relationships) => {
-          this.renderTextRelationships(relationships);
-        });
-      });
-    }
-
-    if (treeView) {
-      treeView.addEventListener("click", () => {
+    if (textView) {
+      textView.addEventListener("click", () => {
         this.loadRelationships().then((relationships) => {
           this.renderTextRelationships(relationships);
         });
@@ -725,10 +737,10 @@ class MigratoStudio {
 
     if (!relationships || relationships.length === 0) {
       container.innerHTML = `
-        <div class="text-center text-gray-500 dark:text-gray-400">
-          <div class="text-4xl mb-4">🔗</div>
-          <p>No relationships found</p>
-          <p class="text-sm mt-2">Foreign key relationships will appear here</p>
+        <div class="text-center text-slate-400">
+          <div class="text-4xl mb-4 opacity-50">🔗</div>
+          <p class="text-lg">No relationships found</p>
+          <p class="text-sm mt-2 text-slate-500">Foreign key relationships will appear here</p>
         </div>
       `;
       return;
@@ -765,14 +777,25 @@ class MigratoStudio {
 
     // Create container for Mermaid
     container.innerHTML = `
-      <div class="bg-white dark:bg-gray-100 rounded p-4">
+      <div class="bg-slate-900 border border-slate-700 rounded-lg p-6">
         <pre class="mermaid text-sm">${mermaid}</pre>
       </div>
     `;
 
     // Initialize Mermaid if available
     if (typeof mermaid !== "undefined") {
-      mermaid.initialize({ startOnLoad: true });
+      mermaid.initialize({
+        startOnLoad: true,
+        theme: "dark",
+        themeVariables: {
+          primaryColor: "#3b82f6",
+          primaryTextColor: "#ffffff",
+          primaryBorderColor: "#1e40af",
+          lineColor: "#64748b",
+          secondaryColor: "#1e293b",
+          tertiaryColor: "#334155",
+        },
+      });
     } else {
       // Fallback to text representation
       this.renderTextRelationships(relationships);
@@ -784,7 +807,7 @@ class MigratoStudio {
 
     let html = '<div class="space-y-4">';
     html +=
-      '<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Table Relationships</h3>';
+      '<h3 class="text-lg font-semibold text-white mb-4">Table Relationships</h3>';
 
     // Group relationships by source table
     const grouped = {};
@@ -796,14 +819,14 @@ class MigratoStudio {
     });
 
     Object.keys(grouped).forEach((sourceTable) => {
-      html += `<div class="border rounded-lg p-4 bg-gray-50 dark:bg-gray-700">`;
-      html += `<h4 class="font-semibold text-blue-600 dark:text-blue-400 mb-2">${sourceTable}</h4>`;
+      html += `<div class="border border-slate-700 rounded-lg p-4 bg-slate-800">`;
+      html += `<h4 class="font-semibold text-blue-400 mb-3">${sourceTable}</h4>`;
 
       grouped[sourceTable].forEach((rel) => {
-        html += `<div class="ml-4 mb-2 text-sm">`;
-        html += `<span class="text-gray-600 dark:text-gray-300">${rel.source_column}</span>`;
-        html += `<span class="mx-2 text-gray-400">→</span>`;
-        html += `<span class="text-green-600 dark:text-green-400">${rel.target_table}.${rel.target_column}</span>`;
+        html += `<div class="ml-4 mb-3 text-sm flex items-center">`;
+        html += `<span class="text-slate-300 font-medium">${rel.source_column}</span>`;
+        html += `<span class="mx-3 text-slate-500">→</span>`;
+        html += `<span class="text-green-400 font-medium">${rel.target_table}.${rel.target_column}</span>`;
         html += `</div>`;
       });
 
