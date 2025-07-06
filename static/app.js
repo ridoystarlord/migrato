@@ -16,6 +16,7 @@ class MigratoStudio {
     this.loadTheme();
     await this.loadTables();
     this.setupEventListeners();
+    this.loadRelationships();
   }
 
   async loadTables() {
@@ -423,6 +424,35 @@ class MigratoStudio {
         }
       });
     });
+
+    // Relationship view buttons
+    const mermaidView = document.getElementById("mermaid-view");
+    const graphView = document.getElementById("graph-view");
+    const treeView = document.getElementById("tree-view");
+
+    if (mermaidView) {
+      mermaidView.addEventListener("click", () => {
+        this.loadRelationships().then((relationships) => {
+          this.renderMermaidDiagram(relationships);
+        });
+      });
+    }
+
+    if (graphView) {
+      graphView.addEventListener("click", () => {
+        this.loadRelationships().then((relationships) => {
+          this.renderTextRelationships(relationships);
+        });
+      });
+    }
+
+    if (treeView) {
+      treeView.addEventListener("click", () => {
+        this.loadRelationships().then((relationships) => {
+          this.renderTextRelationships(relationships);
+        });
+      });
+    }
   }
 
   toggleSidebar() {
@@ -643,6 +673,145 @@ class MigratoStudio {
       '<div class="flex-1 flex items-center justify-center"><div class="text-center"><div class="text-4xl mb-4">ERROR</div><div class="text-red-400 font-medium text-lg">' +
       message +
       "</div></div></div>";
+  }
+
+  // Tab switching functionality
+  showTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll(".tab-content").forEach((content) => {
+      content.classList.remove("active");
+      content.classList.add("hidden");
+    });
+
+    // Remove active class from all tab buttons
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.classList.remove("active");
+    });
+
+    // Show selected tab content
+    const selectedContent = document.getElementById(tabName + "-view");
+    if (selectedContent) {
+      selectedContent.classList.remove("hidden");
+      selectedContent.classList.add("active");
+    }
+
+    // Add active class to selected tab button
+    const selectedTab = document.getElementById(tabName + "-tab");
+    if (selectedTab) {
+      selectedTab.classList.add("active");
+    }
+
+    // Load relationships if switching to relationships tab
+    if (tabName === "relationships") {
+      this.loadRelationships();
+    }
+  }
+
+  async loadRelationships() {
+    try {
+      const response = await fetch("/api/relationships");
+      const relationships = await response.json();
+      this.renderRelationships(relationships);
+      return relationships;
+    } catch (error) {
+      console.error("Error loading relationships:", error);
+      this.showError("Failed to load relationships");
+      return [];
+    }
+  }
+
+  renderRelationships(relationships) {
+    const container = document.getElementById("relationship-container");
+
+    if (!relationships || relationships.length === 0) {
+      container.innerHTML = `
+        <div class="text-center text-gray-500 dark:text-gray-400">
+          <div class="text-4xl mb-4">🔗</div>
+          <p>No relationships found</p>
+          <p class="text-sm mt-2">Foreign key relationships will appear here</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Default to Mermaid view
+    this.renderMermaidDiagram(relationships);
+  }
+
+  renderMermaidDiagram(relationships) {
+    const container = document.getElementById("relationship-container");
+
+    // Generate Mermaid diagram
+    let mermaid = "erDiagram\n";
+
+    // Get unique tables
+    const tables = new Set();
+    relationships.forEach((rel) => {
+      tables.add(rel.source_table);
+      tables.add(rel.target_table);
+    });
+
+    // Add table definitions (simplified)
+    tables.forEach((table) => {
+      mermaid += `    ${table} {\n`;
+      mermaid += `        string name\n`;
+      mermaid += `    }\n`;
+    });
+
+    // Add relationships
+    relationships.forEach((rel) => {
+      mermaid += `    ${rel.source_table} ||--o{ ${rel.target_table} : "${rel.source_column} -> ${rel.target_column}"\n`;
+    });
+
+    // Create container for Mermaid
+    container.innerHTML = `
+      <div class="bg-white dark:bg-gray-100 rounded p-4">
+        <pre class="mermaid text-sm">${mermaid}</pre>
+      </div>
+    `;
+
+    // Initialize Mermaid if available
+    if (typeof mermaid !== "undefined") {
+      mermaid.initialize({ startOnLoad: true });
+    } else {
+      // Fallback to text representation
+      this.renderTextRelationships(relationships);
+    }
+  }
+
+  renderTextRelationships(relationships) {
+    const container = document.getElementById("relationship-container");
+
+    let html = '<div class="space-y-4">';
+    html +=
+      '<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Table Relationships</h3>';
+
+    // Group relationships by source table
+    const grouped = {};
+    relationships.forEach((rel) => {
+      if (!grouped[rel.source_table]) {
+        grouped[rel.source_table] = [];
+      }
+      grouped[rel.source_table].push(rel);
+    });
+
+    Object.keys(grouped).forEach((sourceTable) => {
+      html += `<div class="border rounded-lg p-4 bg-gray-50 dark:bg-gray-700">`;
+      html += `<h4 class="font-semibold text-blue-600 dark:text-blue-400 mb-2">${sourceTable}</h4>`;
+
+      grouped[sourceTable].forEach((rel) => {
+        html += `<div class="ml-4 mb-2 text-sm">`;
+        html += `<span class="text-gray-600 dark:text-gray-300">${rel.source_column}</span>`;
+        html += `<span class="mx-2 text-gray-400">→</span>`;
+        html += `<span class="text-green-600 dark:text-green-400">${rel.target_table}.${rel.target_column}</span>`;
+        html += `</div>`;
+      });
+
+      html += `</div>`;
+    });
+
+    html += "</div>";
+    container.innerHTML = html;
   }
 
   exportData(format) {

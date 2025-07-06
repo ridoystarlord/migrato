@@ -63,6 +63,7 @@ func startStudioServer(port string) error {
 	// Setup routes
 	http.HandleFunc("/", server.handleIndex)
 	http.HandleFunc("/api/tables", server.handleTables)
+	http.HandleFunc("/api/relationships", server.handleRelationships)
 	http.HandleFunc("/api/table/", server.handleTableData)
 	http.HandleFunc("/api/update/", server.handleUpdateData)
 	http.HandleFunc("/api/export/", server.handleExportData)
@@ -100,6 +101,15 @@ type TableData struct {
 	Limit int                      `json:"limit"`
 }
 
+// Relationship represents a foreign key relationship between tables
+type Relationship struct {
+	SourceTable    string `json:"source_table"`
+	SourceColumn   string `json:"source_column"`
+	TargetTable    string `json:"target_table"`
+	TargetColumn   string `json:"target_column"`
+	ConstraintName string `json:"constraint_name"`
+}
+
 func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -114,6 +124,7 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Migrato Studio - Database Browser</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -326,6 +337,21 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
         body.light-mode .text-purple-400 {
             color: #8b5cf6;
         }
+        
+        /* Tab styles */
+        .tab-btn {
+            @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center;
+            @apply bg-transparent text-slate-400 hover:text-white hover:bg-slate-700;
+        }
+        .tab-btn.active {
+            @apply bg-slate-700 text-white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: flex;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white h-screen overflow-hidden">
@@ -381,24 +407,70 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
         
         <!-- Main Content Area -->
         <main class="flex-1 bg-slate-900 overflow-hidden">
-            <div id="tableView" class="h-full flex flex-col">
-                <div class="flex-1 flex items-center justify-center">
-                    <div class="text-center">
-                        <div class="text-6xl mb-6 opacity-50">DB</div>
-                        <h2 class="text-2xl font-semibold text-white mb-3">Welcome to Migrato Studio</h2>
-                        <p class="text-slate-400 text-lg">Select a table from the sidebar to explore your data</p>
-                        <div class="mt-8 flex items-center justify-center space-x-4 text-slate-500">
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
-                                <span class="text-sm">Real-time data</span>
+            <!-- Tabs -->
+            <div class="bg-slate-800 border-b border-slate-700">
+                <div class="flex space-x-1 p-4">
+                    <button id="data-tab" class="tab-btn active" onclick="showTab('data')">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        Data Browser
+                    </button>
+                    <button id="relationships-tab" class="tab-btn" onclick="showTab('relationships')">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        Relationships
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Data Browser Tab -->
+            <div id="data-view" class="tab-content active h-full flex flex-col">
+                <div id="tableView" class="h-full flex flex-col">
+                    <div class="flex-1 flex items-center justify-center">
+                        <div class="text-center">
+                            <div class="text-6xl mb-6 opacity-50">DB</div>
+                            <h2 class="text-2xl font-semibold text-white mb-3">Welcome to Migrato Studio</h2>
+                            <p class="text-slate-400 text-lg">Select a table from the sidebar to explore your data</p>
+                            <div class="mt-8 flex items-center justify-center space-x-4 text-slate-500">
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+                                    <span class="text-sm">Real-time data</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                                    <span class="text-sm">Fast search</span>
+                                </div>
+                                <div class="flex items-center space-x-2">
+                                    <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                                    <span class="text-sm">Interactive</span>
+                                </div>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                                <span class="text-sm">Fast search</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Relationships Tab -->
+            <div id="relationships-view" class="tab-content hidden h-full flex flex-col">
+                <div class="flex-1 p-6">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+                                Table Relationships
+                            </h2>
+                            <div class="flex space-x-2">
+                                <button id="mermaid-view" class="btn btn-primary">Mermaid</button>
+                                <button id="graph-view" class="btn btn-secondary">Interactive Graph</button>
+                                <button id="tree-view" class="btn btn-secondary">Tree View</button>
                             </div>
-                            <div class="flex items-center space-x-2">
-                                <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
-                                <span class="text-sm">Interactive</span>
+                        </div>
+                        
+                        <div id="relationship-container" class="border rounded-lg p-4 min-h-96">
+                            <div class="text-center text-gray-500 dark:text-gray-400">
+                                <div class="text-4xl mb-4">🔗</div>
+                                <p>Loading relationships...</p>
                             </div>
                         </div>
                     </div>
@@ -464,6 +536,63 @@ func (s *StudioServer) handleTables(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+func (s *StudioServer) handleRelationships(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get database pool
+	pool, err := s.getPool()
+	if err != nil {
+		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Query to get foreign key relationships
+	query := `
+		SELECT 
+			tc.table_name as source_table,
+			kcu.column_name as source_column,
+			ccu.table_name as target_table,
+			ccu.column_name as target_column,
+			tc.constraint_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu 
+			ON tc.constraint_name = kcu.constraint_name
+		JOIN information_schema.constraint_column_usage ccu 
+			ON ccu.constraint_name = tc.constraint_name
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+		AND tc.table_schema = 'public'
+		AND ccu.table_schema = 'public'
+		ORDER BY tc.table_name, kcu.column_name
+	`
+
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		http.Error(w, "Failed to query relationships: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var relationships []Relationship
+	for rows.Next() {
+		var rel Relationship
+		err := rows.Scan(&rel.SourceTable, &rel.SourceColumn, &rel.TargetTable, &rel.TargetColumn, &rel.ConstraintName)
+		if err != nil {
+			http.Error(w, "Failed to scan relationship: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		relationships = append(relationships, rel)
+	}
+
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(relationships)
 }
 
 func (s *StudioServer) handleTableData(w http.ResponseWriter, r *http.Request) {

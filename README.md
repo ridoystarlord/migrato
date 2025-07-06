@@ -769,6 +769,8 @@ migrato studio --port 3000       # Start on custom port
 - **Data Viewer**: Browse table data with pagination
 - **Search & Filter**: Search across text columns
 - **Inline Editing**: Real-time data editing with validation
+- **Table Relationships**: Visual representation of foreign key relationships
+- **Export/Import**: Export data as CSV, JSON, or SQL; import from files
 - **Responsive Design**: Works on desktop and mobile
 - **Real-time Updates**: Live data from your database
 
@@ -803,6 +805,33 @@ The web interface provides:
 - **Search Box**: Filter data across text columns
 - **Pagination**: Navigate through large datasets
 - **Responsive Layout**: Works on all screen sizes
+
+### Table Relationships
+
+View and explore foreign key relationships between your tables:
+
+1. **Switch to Relationships Tab**: Click the "Relationships" tab in the main interface
+2. **Visual Diagrams**: View relationships as Mermaid ERD diagrams
+3. **Text View**: Browse relationships in a structured text format
+4. **Interactive Navigation**: Click between different visualization modes
+
+#### Relationship Features
+
+- **Mermaid Diagrams**: Professional ERD diagrams showing table relationships
+- **Foreign Key Mapping**: Clear visualization of source → target relationships
+- **Constraint Names**: View the actual constraint names from your database
+- **Multiple Views**: Switch between diagram and text representations
+- **Real-time Loading**: Relationships loaded directly from your database schema
+
+#### Example Relationship View
+
+```
+users ||--o{ posts : "user_id -> id"
+posts ||--o{ comments : "post_id -> id"
+categories ||--o{ posts : "category_id -> id"
+```
+
+This shows how tables are connected through foreign keys, making it easy to understand your database structure and data flow.
 
 ### Inline Editing
 
