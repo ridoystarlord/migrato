@@ -9,6 +9,32 @@ import (
 	"github.com/ridoystarlord/migrato/diff"
 )
 
+// formatDefaultValue properly formats a default value for SQL
+func formatDefaultValue(defaultVal string) string {
+	// If it's already quoted, return as is
+	if strings.HasPrefix(defaultVal, "'") && strings.HasSuffix(defaultVal, "'") {
+		return defaultVal
+	}
+	
+	// If it's a function call (like now()), return as is
+	if strings.Contains(defaultVal, "(") && strings.Contains(defaultVal, ")") {
+		return defaultVal
+	}
+	
+	// If it's a boolean, return as is
+	if defaultVal == "true" || defaultVal == "false" {
+		return defaultVal
+	}
+	
+	// If it's a number, return as is
+	if strings.ContainsAny(defaultVal, "0123456789") && !strings.ContainsAny(defaultVal, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		return defaultVal
+	}
+	
+	// Otherwise, quote it as a string
+	return fmt.Sprintf("'%s'", strings.ReplaceAll(defaultVal, "'", "''"))
+}
+
 // GenerateSQL converts a list of Operations into raw SQL statements.
 func GenerateSQL(ops []diff.Operation) ([]string, error) {
 	var sqlStatements []string
@@ -32,7 +58,7 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 				stmt += " NOT NULL"
 			}
 			if op.Column.Default != nil {
-				stmt += fmt.Sprintf(" DEFAULT %s", *op.Column.Default)
+				stmt += fmt.Sprintf(" DEFAULT %s", formatDefaultValue(*op.Column.Default))
 			}
 			if op.Column.Unique {
 				stmt += " UNIQUE"
@@ -235,7 +261,7 @@ func generateCreateTable(op diff.Operation) (string, error) {
 			stmt += " NOT NULL"
 		}
 		if col.Default != nil {
-			stmt += fmt.Sprintf(" DEFAULT %s", *col.Default)
+			stmt += fmt.Sprintf(" DEFAULT %s", formatDefaultValue(*col.Default))
 		}
 		if i < len(op.Columns)-1 {
 			stmt += ", "
@@ -341,7 +367,7 @@ func generateModifyColumn(op diff.Operation) (string, error) {
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s`,
 				op.TableName,
 				op.Column.Name,
-				*newDefault,
+				formatDefaultValue(*newDefault),
 			)
 			statements = append(statements, stmt)
 		}
@@ -413,7 +439,7 @@ func generateModifyColumnRollback(op diff.Operation) (string, error) {
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DEFAULT %s`,
 				op.TableName,
 				op.Column.Name,
-				*oldDefault,
+				formatDefaultValue(*oldDefault),
 			)
 			statements = append(statements, stmt)
 		}
