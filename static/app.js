@@ -3,7 +3,7 @@ class MigratoStudio {
   constructor() {
     this.currentTable = null;
     this.currentPage = 1;
-    this.pageSize = 50;
+    this.pageSize = 10; // Start with 10 rows
     this.searchTerm = "";
     this.loading = false;
     this.sidebarCollapsed = false;
@@ -16,7 +16,7 @@ class MigratoStudio {
     this.loadTheme();
     await this.loadTables();
     this.setupEventListeners();
-    this.loadRelationships();
+    // Don't load relationships immediately - load them when the tab is viewed
   }
 
   async loadTables() {
@@ -139,7 +139,7 @@ class MigratoStudio {
     const pagination = this.createPagination(data);
 
     tableView.innerHTML = "";
-    tableView.className = "h-full flex flex-col p-6";
+    tableView.className = "h-full flex flex-col p-6 space-y-4";
     tableView.appendChild(controls);
     tableView.appendChild(table);
     tableView.appendChild(pagination);
@@ -252,10 +252,10 @@ class MigratoStudio {
     }
     const tableContainer = document.createElement("div");
     tableContainer.className =
-      "flex-1 overflow-hidden bg-slate-800 rounded-lg border border-slate-700";
+      "flex-1 bg-slate-800 rounded-lg border border-slate-700 flex flex-col";
 
     const tableWrapper = document.createElement("div");
-    tableWrapper.className = "h-full overflow-auto";
+    tableWrapper.className = "h-96 overflow-auto"; // Fixed height of 24rem (384px)
 
     const table = document.createElement("table");
     table.className = "min-w-full";
@@ -329,26 +329,40 @@ class MigratoStudio {
   createPagination(data) {
     const pagination = document.createElement("div");
     pagination.className =
-      "flex items-center justify-between mt-6 pt-6 border-t border-slate-700";
+      "flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t border-slate-700 bg-slate-800 p-4 rounded-b-lg";
 
     const totalPages = Math.ceil(data.total / this.pageSize);
 
     const info = document.createElement("div");
-    info.className = "text-sm text-slate-400";
-    info.textContent =
-      "Showing " +
-      ((this.currentPage - 1) * this.pageSize + 1) +
-      " to " +
-      Math.min(this.currentPage * this.pageSize, data.total) +
-      " of " +
-      data.total +
-      " rows";
+    info.className = "text-sm text-slate-400 text-center sm:text-left";
+
+    if (data.total === 0) {
+      info.textContent = "No data found";
+    } else {
+      const start = (this.currentPage - 1) * this.pageSize + 1;
+      const end = Math.min(this.currentPage * this.pageSize, data.total);
+      info.textContent = `Showing ${start} to ${end} of ${data.total} rows (Page ${this.currentPage} of ${totalPages})`;
+    }
 
     const controls = document.createElement("div");
-    controls.className = "flex space-x-2";
+    controls.className = "flex items-center space-x-3 flex-wrap justify-center";
 
+    // First page button
+    const firstBtn = document.createElement("button");
+    firstBtn.innerHTML = "⏮ First";
+    firstBtn.disabled = this.currentPage <= 1;
+    firstBtn.className =
+      "px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+    firstBtn.onclick = () => {
+      if (this.currentPage > 1) {
+        this.currentPage = 1;
+        this.loadTableData();
+      }
+    };
+
+    // Previous button
     const prevBtn = document.createElement("button");
-    prevBtn.textContent = "← Previous";
+    prevBtn.innerHTML = "← Previous";
     prevBtn.disabled = this.currentPage <= 1;
     prevBtn.className =
       "px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
@@ -359,8 +373,15 @@ class MigratoStudio {
       }
     };
 
+    // Page indicator
+    const pageIndicator = document.createElement("span");
+    pageIndicator.className =
+      "px-4 py-2 text-sm font-medium text-slate-300 bg-slate-700 border border-slate-600 rounded-lg";
+    pageIndicator.textContent = `${this.currentPage} / ${totalPages}`;
+
+    // Next button
     const nextBtn = document.createElement("button");
-    nextBtn.textContent = "Next →";
+    nextBtn.innerHTML = "Next →";
     nextBtn.disabled = this.currentPage >= totalPages;
     nextBtn.className =
       "px-4 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
@@ -371,8 +392,54 @@ class MigratoStudio {
       }
     };
 
+    // Last page button
+    const lastBtn = document.createElement("button");
+    lastBtn.innerHTML = "Last ⏭";
+    lastBtn.disabled = this.currentPage >= totalPages;
+    lastBtn.className =
+      "px-3 py-2 text-sm font-medium text-slate-300 bg-slate-800 border border-slate-600 rounded-lg hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors";
+    lastBtn.onclick = () => {
+      if (this.currentPage < totalPages) {
+        this.currentPage = totalPages;
+        this.loadTableData();
+      }
+    };
+
+    // Page size selector
+    const pageSizeContainer = document.createElement("div");
+    pageSizeContainer.className = "flex items-center space-x-2 ml-4";
+
+    const pageSizeLabel = document.createElement("label");
+    pageSizeLabel.className = "text-sm text-slate-300";
+    pageSizeLabel.textContent = "Rows:";
+
+    const pageSizeSelect = document.createElement("select");
+    pageSizeSelect.className =
+      "px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white text-sm focus:ring-2 focus:ring-blue-500";
+    pageSizeSelect.innerHTML = `
+      <option value="10" ${this.pageSize === 10 ? "selected" : ""}>10</option>
+      <option value="25" ${this.pageSize === 25 ? "selected" : ""}>25</option>
+      <option value="50" ${this.pageSize === 50 ? "selected" : ""}>50</option>
+      <option value="100" ${
+        this.pageSize === 100 ? "selected" : ""
+      }>100</option>
+    `;
+
+    pageSizeSelect.addEventListener("change", (e) => {
+      this.pageSize = parseInt(e.target.value);
+      this.currentPage = 1; // Reset to first page
+      this.loadTableData();
+    });
+
+    pageSizeContainer.appendChild(pageSizeLabel);
+    pageSizeContainer.appendChild(pageSizeSelect);
+
+    controls.appendChild(firstBtn);
     controls.appendChild(prevBtn);
+    controls.appendChild(pageIndicator);
     controls.appendChild(nextBtn);
+    controls.appendChild(lastBtn);
+    controls.appendChild(pageSizeContainer);
 
     pagination.appendChild(info);
     pagination.appendChild(controls);
@@ -445,26 +512,6 @@ class MigratoStudio {
         }
       });
     });
-
-    // Relationship view buttons
-    const mermaidView = document.getElementById("mermaid-view");
-    const textView = document.getElementById("text-view");
-
-    if (mermaidView) {
-      mermaidView.addEventListener("click", () => {
-        this.loadRelationships().then((relationships) => {
-          this.renderMermaidDiagram(relationships);
-        });
-      });
-    }
-
-    if (textView) {
-      textView.addEventListener("click", () => {
-        this.loadRelationships().then((relationships) => {
-          this.renderTextRelationships(relationships);
-        });
-      });
-    }
   }
 
   toggleSidebar() {
@@ -685,156 +732,6 @@ class MigratoStudio {
       '<div class="flex-1 flex items-center justify-center"><div class="text-center"><div class="text-4xl mb-4">ERROR</div><div class="text-red-400 font-medium text-lg">' +
       message +
       "</div></div></div>";
-  }
-
-  // Tab switching functionality
-  showTab(tabName) {
-    // Hide all tab contents
-    document.querySelectorAll(".tab-content").forEach((content) => {
-      content.classList.remove("active");
-      content.classList.add("hidden");
-    });
-
-    // Remove active class from all tab buttons
-    document.querySelectorAll(".tab-btn").forEach((btn) => {
-      btn.classList.remove("active");
-    });
-
-    // Show selected tab content
-    const selectedContent = document.getElementById(tabName + "-view");
-    if (selectedContent) {
-      selectedContent.classList.remove("hidden");
-      selectedContent.classList.add("active");
-    }
-
-    // Add active class to selected tab button
-    const selectedTab = document.getElementById(tabName + "-tab");
-    if (selectedTab) {
-      selectedTab.classList.add("active");
-    }
-
-    // Load relationships if switching to relationships tab
-    if (tabName === "relationships") {
-      this.loadRelationships();
-    }
-  }
-
-  async loadRelationships() {
-    try {
-      const response = await fetch("/api/relationships");
-      const relationships = await response.json();
-      this.renderRelationships(relationships);
-      return relationships;
-    } catch (error) {
-      console.error("Error loading relationships:", error);
-      this.showError("Failed to load relationships");
-      return [];
-    }
-  }
-
-  renderRelationships(relationships) {
-    const container = document.getElementById("relationship-container");
-
-    if (!relationships || relationships.length === 0) {
-      container.innerHTML = `
-        <div class="text-center text-slate-400">
-          <div class="text-4xl mb-4 opacity-50">🔗</div>
-          <p class="text-lg">No relationships found</p>
-          <p class="text-sm mt-2 text-slate-500">Foreign key relationships will appear here</p>
-        </div>
-      `;
-      return;
-    }
-
-    // Default to Mermaid view
-    this.renderMermaidDiagram(relationships);
-  }
-
-  renderMermaidDiagram(relationships) {
-    const container = document.getElementById("relationship-container");
-
-    // Generate Mermaid diagram
-    let mermaid = "erDiagram\n";
-
-    // Get unique tables
-    const tables = new Set();
-    relationships.forEach((rel) => {
-      tables.add(rel.source_table);
-      tables.add(rel.target_table);
-    });
-
-    // Add table definitions (simplified)
-    tables.forEach((table) => {
-      mermaid += `    ${table} {\n`;
-      mermaid += `        string name\n`;
-      mermaid += `    }\n`;
-    });
-
-    // Add relationships
-    relationships.forEach((rel) => {
-      mermaid += `    ${rel.source_table} ||--o{ ${rel.target_table} : "${rel.source_column} -> ${rel.target_column}"\n`;
-    });
-
-    // Create container for Mermaid
-    container.innerHTML = `
-      <div class="bg-slate-900 border border-slate-700 rounded-lg p-6">
-        <pre class="mermaid text-sm">${mermaid}</pre>
-      </div>
-    `;
-
-    // Initialize Mermaid if available
-    if (typeof mermaid !== "undefined") {
-      mermaid.initialize({
-        startOnLoad: true,
-        theme: "dark",
-        themeVariables: {
-          primaryColor: "#3b82f6",
-          primaryTextColor: "#ffffff",
-          primaryBorderColor: "#1e40af",
-          lineColor: "#64748b",
-          secondaryColor: "#1e293b",
-          tertiaryColor: "#334155",
-        },
-      });
-    } else {
-      // Fallback to text representation
-      this.renderTextRelationships(relationships);
-    }
-  }
-
-  renderTextRelationships(relationships) {
-    const container = document.getElementById("relationship-container");
-
-    let html = '<div class="space-y-4">';
-    html +=
-      '<h3 class="text-lg font-semibold text-white mb-4">Table Relationships</h3>';
-
-    // Group relationships by source table
-    const grouped = {};
-    relationships.forEach((rel) => {
-      if (!grouped[rel.source_table]) {
-        grouped[rel.source_table] = [];
-      }
-      grouped[rel.source_table].push(rel);
-    });
-
-    Object.keys(grouped).forEach((sourceTable) => {
-      html += `<div class="border border-slate-700 rounded-lg p-4 bg-slate-800">`;
-      html += `<h4 class="font-semibold text-blue-400 mb-3">${sourceTable}</h4>`;
-
-      grouped[sourceTable].forEach((rel) => {
-        html += `<div class="ml-4 mb-3 text-sm flex items-center">`;
-        html += `<span class="text-slate-300 font-medium">${rel.source_column}</span>`;
-        html += `<span class="mx-3 text-slate-500">→</span>`;
-        html += `<span class="text-green-400 font-medium">${rel.target_table}.${rel.target_column}</span>`;
-        html += `</div>`;
-      });
-
-      html += `</div>`;
-    });
-
-    html += "</div>";
-    container.innerHTML = html;
   }
 
   exportData(format) {
