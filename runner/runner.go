@@ -50,6 +50,8 @@ func getConn() (*pgx.Conn, context.Context, error) {
 }
 
 func ensureMigrationsTable(conn *pgx.Conn, ctx context.Context) error {
+	fmt.Println("🔧 Ensuring migration tables exist...")
+	
 	// Create enhanced migrations table with history tracking
 	_, err := conn.Exec(ctx, `
 	CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -65,8 +67,9 @@ func ensureMigrationsTable(conn *pgx.Conn, ctx context.Context) error {
 	);
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create schema_migrations table: %v", err)
 	}
+	fmt.Println("✅ schema_migrations table ensured")
 
 	// Create migration logs table
 	_, err = conn.Exec(ctx, `
@@ -80,7 +83,12 @@ func ensureMigrationsTable(conn *pgx.Conn, ctx context.Context) error {
 		migration_name TEXT
 	);
 	`)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create migration_logs table: %v", err)
+	}
+	fmt.Println("✅ migration_logs table ensured")
+	
+	return nil
 }
 
 func getCurrentUser() string {
