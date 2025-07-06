@@ -17,19 +17,24 @@ var validateCmd = &cobra.Command{
 	Short: "Validate YAML schema against database constraints",
 	Long: `Validate your YAML schema file against database constraints and best practices.
 
-This command will check:
-- Table and column name validity
-- Data type compatibility
-- Foreign key references
-- Index definitions
-- Default value compatibility
-- Cross-table constraints
-- Reserved keyword usage
+This command performs comprehensive validation including:
+- Table and column naming (PostgreSQL identifier rules, reserved keywords)
+- Data type compatibility (supported PostgreSQL types)
+- Foreign key references (valid table/column references)
+- Index definitions (valid names and column references)
+- Default value compatibility (type-appropriate defaults)
+- Cross-table constraints (foreign key relationships)
+- Database state conflicts (when connected to database)
+
+The validator works in two modes:
+- Offline: Validates schema syntax and relationships (no database required)
+- Online: Also checks against existing database state (requires DATABASE_URL)
 
 Examples:
-  migrato validate                    # Validate schema.yaml
+  migrato validate                    # Validate schema.yaml (offline)
   migrato validate --schema custom.yaml  # Validate custom schema file
   migrato validate --format json     # Output validation results as JSON
+  DATABASE_URL=postgres://... migrato validate  # Online validation
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := validateSchema(); err != nil {
@@ -45,8 +50,6 @@ var (
 )
 
 func init() {
-	rootCmd.AddCommand(validateCmd)
-	
 	validateCmd.Flags().StringVarP(&validateSchemaFile, "schema", "s", "schema.yaml", "Schema file to validate")
 	validateCmd.Flags().StringVarP(&validateFormat, "format", "f", "text", "Output format (text, json)")
 }

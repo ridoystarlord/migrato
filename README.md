@@ -17,7 +17,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - Foreign key relationships with configurable cascade options
 - Support for one-to-many, many-to-many, and one-to-one relationships
 - **Health checks**: Verify database connectivity and migration status
-- **Schema validation**: Validate schema syntax and relationships
+- **Schema validation**: Validate YAML schema against database constraints and best practices
 - **Issue detection**: Find and suggest fixes for schema issues
 - **Default values**: Support for literal values and functions
 - **Visual schema diff**: Preview changes with color-coded tree format
@@ -130,8 +130,9 @@ go build -o migrato ./main.go
 - `migrato status` — Show applied and pending migrations
 - `migrato health` — Check database connectivity
   - `-t, --timeout` — Timeout for health check (default: 5s)
-- `migrato validate` — Validate schema integrity
-  - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+- `migrato validate` — Validate YAML schema against database constraints
+  - `-s, --schema` — Specify a custom schema YAML file (default: `schema.yaml`)
+  - `-f, --format` — Output format (text, json) (default: text)
 - `migrato check` — Check for potential issues
   - `-f, --fix-suggestions` — Show suggestions for fixing issues
 - `migrato diff` — Show differences between schema and database
@@ -397,9 +398,76 @@ columns:
 
 > **Note**: Column modifications are detected automatically when you run `migrato generate`. The tool compares your schema with the existing database and generates the appropriate ALTER TABLE statements.
 
-### Visual Schema Diff
+### Schema Validation
 
-Preview your schema changes before generating migrations with the visual diff feature:
+Validate your YAML schema against database constraints and best practices before generating migrations:
+
+```sh
+migrato validate                    # Validate schema.yaml
+migrato validate --schema custom.yaml  # Validate custom schema file
+migrato validate --format json      # Output validation results as JSON
+```
+
+#### Validation Features
+
+The schema validator checks:
+
+- **Table and column naming**: Valid PostgreSQL identifiers, reserved keyword checks
+- **Data type compatibility**: Supported PostgreSQL data types
+- **Foreign key references**: Valid table and column references
+- **Index definitions**: Valid index names and column references
+- **Default value compatibility**: Type-appropriate default values
+- **Cross-table constraints**: Foreign key relationship validation
+- **Database state**: Existing table conflicts (when connected to database)
+
+#### Validation Output Example
+
+```sh
+✅ Schema validation passed!
+
+📊 Summary:
+  • Errors: 0
+  • Warnings: 0
+  • Info: 0
+
+🎉 Your schema is valid and ready for migration generation!
+```
+
+#### Offline vs Online Validation
+
+- **Offline validation** (default): Works without database connection, validates schema syntax and relationships
+- **Online validation**: When `DATABASE_URL` is set, also checks against existing database state
+
+#### JSON Output Format
+
+```sh
+migrato validate --format json
+```
+
+```json
+{
+  "valid": true,
+  "errors": [],
+  "warnings": [
+    {
+      "type": "no_primary_key",
+      "table": "posts",
+      "message": "Table 'posts' has no primary key defined",
+      "severity": "warning"
+    }
+  ],
+  "info": [
+    {
+      "type": "table_exists",
+      "table": "users",
+      "message": "Table 'users' already exists in database",
+      "severity": "info"
+    }
+  ]
+}
+```
+
+### Visual Schema Diff
 
 ```sh
 migrato diff                    # Show differences in text format
@@ -534,20 +602,6 @@ Retrieve all users.
 ```
 ````
 
-### POST /users
-
-Create a new user.
-
-**Request Body:**
-
-```json
-{
-  "email": "user@example.com",
-  "name": "John Doe",
-  "age": 25
-}
-```
-
 ````
 
 ### Migration History & Logging
@@ -563,9 +617,10 @@ migrato history                    # Show all migration history
 migrato history --limit 10         # Show last 10 migrations
 migrato history --table users      # Show migrations for specific table
 migrato history --detailed         # Show detailed information
-```
+````
 
 **History Output Example:**
+
 ```
 📋 Migration History
 ============================================================
@@ -588,6 +643,7 @@ migrato log --limit 20         # Show last 20 log entries
 ```
 
 **Log Output Example:**
+
 ```
 📋 Recent Migration Activities
 ============================================================
@@ -640,7 +696,7 @@ Generate type-safe Go structs and repositories from your schema:
 
 ```sh
 migrato generate-structs
-````
+```
 
 This creates a clean, modular structure:
 
@@ -765,24 +821,6 @@ This checks:
 - Database connectivity
 - Schema migrations table existence
 - Applied migration count
-
-### Schema Validation
-
-Validate your YAML schema for integrity and consistency:
-
-```sh
-migrato validate                  # Validate default schema.yaml
-migrato validate -f custom.yaml   # Validate custom schema file
-```
-
-This validates:
-
-- Duplicate table/column names
-- Primary key constraints
-- Foreign key references
-- Column types
-- Index definitions
-- Relationship definitions
 
 ### Issue Detection
 
