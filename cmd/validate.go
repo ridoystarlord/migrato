@@ -1,318 +1,182 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/ridoystarlord/migrato/loader"
 	"github.com/ridoystarlord/migrato/schema"
+	"github.com/ridoystarlord/migrato/validator"
 	"github.com/spf13/cobra"
 )
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
-	Short: "Validate schema integrity",
-	Long: `Validate your YAML schema for integrity and consistency.
+	Short: "Validate YAML schema against database constraints",
+	Long: `Validate your YAML schema file against database constraints and best practices.
+
+This command will check:
+- Table and column name validity
+- Data type compatibility
+- Foreign key references
+- Index definitions
+- Default value compatibility
+- Cross-table constraints
+- Reserved keyword usage
 
 Examples:
-  migrato validate                    # Validate default schema.yaml
-  migrato validate -f custom.yaml     # Validate custom schema file
+  migrato validate                    # Validate schema.yaml
+  migrato validate --schema custom.yaml  # Validate custom schema file
+  migrato validate --format json     # Output validation results as JSON
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := validateSchema(); err != nil {
 			fmt.Printf("❌ Schema validation failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("✅ Schema is valid and consistent")
 	},
 }
 
+var (
+	validateSchemaFile string
+	validateFormat     string
+)
+
+func init() {
+	rootCmd.AddCommand(validateCmd)
+	
+	validateCmd.Flags().StringVarP(&validateSchemaFile, "schema", "s", "schema.yaml", "Schema file to validate")
+	validateCmd.Flags().StringVarP(&validateFormat, "format", "f", "text", "Output format (text, json)")
+}
+
 func validateSchema() error {
-	// Load and parse schema
-	models, err := loader.LoadModelsFromYAML(schemaFile)
+	// Load schema
+	models, err := loader.LoadModelsFromYAML(validateSchemaFile)
 	if err != nil {
 		return fmt.Errorf("failed to load schema: %v", err)
 	}
 
-	// Validate each model
-	for _, model := range models {
-		if err := validateModel(model, models); err != nil {
-			return fmt.Errorf("model '%s': %v", model.TableName, err)
-		}
+	// Check for DATABASE_URL in environment
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		fmt.Println("[DEBUG] DATABASE_URL not set, using offline schema validation.")
+		return validateSchemaOffline(models)
 	}
 
-	fmt.Printf("📋 Validated %d models\n", len(models))
-	return nil
+	// Only create DB validator if DATABASE_URL is set
+	dbValidator, err := validator.NewSchemaValidator()
+	if err != nil {
+		return fmt.Errorf("failed to create schema validator: %v", err)
+	}
+
+	// Validate schema with database
+	result, err := dbValidator.ValidateSchema(models)
+	if err != nil {
+		return fmt.Errorf("failed to validate schema: %v", err)
+	}
+
+	// Output results
+	if validateFormat == "json" {
+		return outputJSON(result)
+	} else {
+		return outputText(result)
+	}
 }
 
-func validateModel(model schema.Model, allModels []schema.Model) error {
-	// Check for duplicate table names
-	tableNames := make(map[string]bool)
-	for _, m := range allModels {
-		if tableNames[m.TableName] {
-			return fmt.Errorf("duplicate table name: %s", m.TableName)
-		}
-		tableNames[m.TableName] = true
+func validateSchemaOffline(models []schema.Model) error {
+	validator := &validator.SchemaValidator{} // No DB connection
+	result, err := validator.ValidateSchemaWithoutDB(models)
+	if err != nil {
+		return fmt.Errorf("failed to validate schema: %v", err)
+	}
+	if validateFormat == "json" {
+		return outputJSON(result)
+	} else {
+		return outputText(result)
+	}
+}
+
+func outputJSON(result *validator.ValidationResult) error {
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(result)
+}
+
+func outputText(result *validator.ValidationResult) error {
+	// Print summary
+	if result.Valid {
+		color.Green("✅ Schema validation passed!")
+	} else {
+		color.Red("❌ Schema validation failed!")
 	}
 
-	// Validate columns
-	columnNames := make(map[string]bool)
-	primaryKeyCount := 0
-
-	for _, col := range model.Columns {
-		// Check for duplicate column names
-		if columnNames[col.Name] {
-			return fmt.Errorf("duplicate column name: %s", col.Name)
-		}
-		columnNames[col.Name] = true
-
-		// Count primary keys
-		if col.Primary {
-			primaryKeyCount++
-		}
-
-		// Validate foreign key references
-		if col.ForeignKey != nil {
-			if err := validateForeignKey(col.ForeignKey, allModels); err != nil {
-				return fmt.Errorf("foreign key on column '%s': %v", col.Name, err)
+	// Print errors
+	if len(result.Errors) > 0 {
+		fmt.Printf("\n🔴 Errors (%d):\n", len(result.Errors))
+		for i, err := range result.Errors {
+			fmt.Printf("  %d. ", i+1)
+			if err.Table != "" {
+				fmt.Printf("[%s]", err.Table)
 			}
-		}
-
-		// Validate column type
-		if err := validateColumnType(col.Type); err != nil {
-			return fmt.Errorf("column '%s': %v", col.Name, err)
-		}
-
-		// Validate default value
-		if col.Default != nil {
-			if err := validateDefaultValue(*col.Default, col.Type); err != nil {
-				return fmt.Errorf("column '%s' default value: %v", col.Name, err)
+			if err.Column != "" {
+				fmt.Printf(".%s", err.Column)
 			}
-		}
-	}
-
-	// Check primary key constraints
-	if primaryKeyCount == 0 {
-		return fmt.Errorf("no primary key defined")
-	}
-	if primaryKeyCount > 1 {
-		return fmt.Errorf("multiple primary keys defined (%d)", primaryKeyCount)
-	}
-
-	// Validate relations
-	for _, rel := range model.Relations {
-		if err := validateRelation(rel, model, allModels); err != nil {
-			return fmt.Errorf("relation '%s': %v", rel.Name, err)
-		}
-	}
-
-	// Validate indexes
-	for _, idx := range model.Indexes {
-		if err := validateIndex(idx, model); err != nil {
-			return fmt.Errorf("index '%s': %v", idx.Name, err)
-		}
-	}
-
-	return nil
-}
-
-func validateForeignKey(fk *schema.ForeignKey, allModels []schema.Model) error {
-	// Check if referenced table exists
-	var targetModel *schema.Model
-	for _, model := range allModels {
-		if model.TableName == fk.ReferencesTable {
-			targetModel = &model
-			break
-		}
-	}
-
-	if targetModel == nil {
-		return fmt.Errorf("referenced table '%s' does not exist", fk.ReferencesTable)
-	}
-
-	// Check if referenced column exists
-	var targetColumn *schema.Column
-	for _, col := range targetModel.Columns {
-		if col.Name == fk.ReferencesColumn {
-			targetColumn = &col
-			break
-		}
-	}
-
-	if targetColumn == nil {
-		return fmt.Errorf("referenced column '%s' does not exist in table '%s'", fk.ReferencesColumn, fk.ReferencesTable)
-	}
-
-	// Validate cascade options
-	if fk.OnDelete != "" {
-		if err := validateCascadeOption(fk.OnDelete); err != nil {
-			return fmt.Errorf("on_delete: %v", err)
-		}
-	}
-
-	if fk.OnUpdate != "" {
-		if err := validateCascadeOption(fk.OnUpdate); err != nil {
-			return fmt.Errorf("on_update: %v", err)
-		}
-	}
-
-	return nil
-}
-
-func validateRelation(rel schema.Relation, model schema.Model, allModels []schema.Model) error {
-	// Check if from column exists
-	var fromColumn *schema.Column
-	for _, col := range model.Columns {
-		if col.Name == rel.FromColumn {
-			fromColumn = &col
-			break
-		}
-	}
-
-	if fromColumn == nil {
-		return fmt.Errorf("from column '%s' does not exist", rel.FromColumn)
-	}
-
-	// Check if target table exists
-	var targetModel *schema.Model
-	for _, m := range allModels {
-		if m.TableName == rel.ToTable {
-			targetModel = &m
-			break
-		}
-	}
-
-	if targetModel == nil {
-		return fmt.Errorf("target table '%s' does not exist", rel.ToTable)
-	}
-
-	// Validate relation type
-	switch rel.Type {
-	case schema.OneToOne, schema.OneToMany, schema.ManyToMany:
-		// Valid types
-	default:
-		return fmt.Errorf("invalid relation type: %s", rel.Type)
-	}
-
-	return nil
-}
-
-func validateIndex(idx schema.Index, model schema.Model) error {
-	// Check for duplicate index names
-	indexNames := make(map[string]bool)
-	for _, existingIdx := range model.Indexes {
-		if indexNames[existingIdx.Name] {
-			return fmt.Errorf("duplicate index name: %s", existingIdx.Name)
-		}
-		indexNames[existingIdx.Name] = true
-	}
-
-	// Validate that all indexed columns exist
-	for _, colName := range idx.Columns {
-		var found bool
-		for _, col := range model.Columns {
-			if col.Name == colName {
-				found = true
-				break
+			if err.Index != "" {
+				fmt.Printf(" (index: %s)", err.Index)
 			}
-		}
-		if !found {
-			return fmt.Errorf("indexed column '%s' does not exist", colName)
+			fmt.Printf(": %s\n", err.Message)
 		}
 	}
 
-	// Validate index type if specified
-	if idx.Type != "" {
-		if err := validateIndexType(idx.Type); err != nil {
-			return err
+	// Print warnings
+	if len(result.Warnings) > 0 {
+		fmt.Printf("\n🟡 Warnings (%d):\n", len(result.Warnings))
+		for i, warning := range result.Warnings {
+			fmt.Printf("  %d. ", i+1)
+			if warning.Table != "" {
+				fmt.Printf("[%s]", warning.Table)
+			}
+			if warning.Column != "" {
+				fmt.Printf(".%s", warning.Column)
+			}
+			if warning.Index != "" {
+				fmt.Printf(" (index: %s)", warning.Index)
+			}
+			fmt.Printf(": %s\n", warning.Message)
 		}
+	}
+
+	// Print info
+	if len(result.Info) > 0 {
+		fmt.Printf("\n🔵 Info (%d):\n", len(result.Info))
+		for i, info := range result.Info {
+			fmt.Printf("  %d. ", i+1)
+			if info.Table != "" {
+				fmt.Printf("[%s]", info.Table)
+			}
+			if info.Column != "" {
+				fmt.Printf(".%s", info.Column)
+			}
+			if info.Index != "" {
+				fmt.Printf(" (index: %s)", info.Index)
+			}
+			fmt.Printf(": %s\n", info.Message)
+		}
+	}
+
+	// Print summary
+	fmt.Printf("\n📊 Summary:\n")
+	fmt.Printf("  • Errors: %d\n", len(result.Errors))
+	fmt.Printf("  • Warnings: %d\n", len(result.Warnings))
+	fmt.Printf("  • Info: %d\n", len(result.Info))
+
+	if result.Valid {
+		fmt.Printf("\n🎉 Your schema is valid and ready for migration generation!\n")
+	} else {
+		fmt.Printf("\n💡 Fix the errors above before generating migrations.\n")
 	}
 
 	return nil
-}
-
-func validateColumnType(colType string) error {
-	validTypes := []string{
-		"serial", "bigserial", "integer", "int", "int4", "bigint", "int8",
-		"smallint", "int2", "text", "varchar", "character varying",
-		"boolean", "bool", "timestamp", "timestamptz", "date",
-		"numeric", "decimal", "real", "float4", "double precision", "float8",
-		"uuid", "json", "jsonb",
-	}
-
-	for _, validType := range validTypes {
-		if colType == validType {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("unsupported column type: %s", colType)
-}
-
-func validateCascadeOption(option string) error {
-	validOptions := []string{"CASCADE", "SET NULL", "RESTRICT", "NO ACTION"}
-	
-	for _, validOption := range validOptions {
-		if option == validOption {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid cascade option: %s (valid options: %v)", option, validOptions)
-}
-
-func validateDefaultValue(defaultVal string, columnType string) error {
-	// Check for common database functions
-	validFunctions := []string{
-		"now()", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP",
-		"uuid_generate_v4()", "gen_random_uuid()", "random()",
-		"true", "false", "0", "1",
-	}
-
-	for _, funcName := range validFunctions {
-		if defaultVal == funcName {
-			return nil
-		}
-	}
-
-	// Check for quoted strings (string literals)
-	if (defaultVal[0] == '\'' && defaultVal[len(defaultVal)-1] == '\'') ||
-		(defaultVal[0] == '"' && defaultVal[len(defaultVal)-1] == '"') {
-		return nil
-	}
-
-	// Check for numeric literals
-	if isNumericLiteral(defaultVal) {
-		return nil
-	}
-
-	// Check for boolean literals
-	if defaultVal == "true" || defaultVal == "false" {
-		return nil
-	}
-
-	return fmt.Errorf("invalid default value: %s (use quoted strings for text, numeric literals, or valid functions)", defaultVal)
-}
-
-func isNumericLiteral(val string) bool {
-	// Simple check for numeric literals
-	// This could be enhanced with more sophisticated parsing
-	for _, char := range val {
-		if (char < '0' || char > '9') && char != '.' && char != '-' {
-			return false
-		}
-	}
-	return len(val) > 0
-}
-
-func validateIndexType(indexType string) error {
-	validTypes := []string{"btree", "hash", "gin", "gist", "spgist", "brin"}
-	
-	for _, validType := range validTypes {
-		if indexType == validType {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid index type: %s (valid types: %v)", indexType, validTypes)
 } 
