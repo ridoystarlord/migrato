@@ -340,7 +340,7 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             width: 100%;
         }
         .table-scroll {
-            height: 65vh;
+            height: 70vh;
             overflow-y: auto;
             width: 100%;
             display: block;
@@ -361,6 +361,33 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             max-width: 44px;
             text-align: center;
             border-right: 1px solid #334155;
+        }
+
+        /* Light mode overrides */
+        body.light-mode .data-table th {
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+        body.light-mode .checkbox-col {
+            border-right-color: #cbd5e1;
+        }
+        body.light-mode .bg-slate-700 {
+            background-color: #f1f5f9;
+        }
+        body.light-mode .bg-slate-800 {
+            background-color: #ffffff;
+        }
+        body.light-mode .bg-slate-750 {
+            background-color: #f8fafc;
+        }
+        body.light-mode .hover\:bg-slate-700:hover {
+            background-color: #e2e8f0;
+        }
+        body.light-mode .border-slate-600 {
+            border-color: #cbd5e1;
+        }
+        body.light-mode .border-slate-700 {
+            border-color: #e2e8f0;
         }
     </style>
 </head>
