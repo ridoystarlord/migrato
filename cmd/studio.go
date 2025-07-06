@@ -330,6 +330,25 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             color: #8b5cf6;
         }
         
+        .table-outer {
+            width: 100%;
+        }
+        .table-scroll {
+            height: 65vh;
+            overflow-y: auto;
+            width: 100%;
+            display: block;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: #334155;
+        }
 
     </style>
 </head>

@@ -139,7 +139,7 @@ class MigratoStudio {
     const pagination = this.createPagination(data);
 
     tableView.innerHTML = "";
-    tableView.className = "h-full flex flex-col p-6 space-y-4";
+    tableView.className = "h-full flex flex-col p-6";
     tableView.appendChild(controls);
     tableView.appendChild(table);
     tableView.appendChild(pagination);
@@ -250,20 +250,17 @@ class MigratoStudio {
     if (!columns || columns.length === 0) {
       columns = data[0] ? Object.keys(data[0]) : [];
     }
-    const tableContainer = document.createElement("div");
-    tableContainer.className =
-      "flex-1 bg-slate-800 rounded-lg border border-slate-700 flex flex-col";
+    // Outer container
+    const outer = document.createElement("div");
+    outer.className =
+      "table-outer bg-slate-800 rounded-lg border border-slate-700";
 
-    const tableWrapper = document.createElement("div");
-    tableWrapper.className = "h-96 overflow-auto"; // Fixed height of 24rem (384px)
-
-    const table = document.createElement("table");
-    table.className = "min-w-full";
-
+    // Header table
+    const headerTable = document.createElement("table");
+    headerTable.className = "data-table";
     const thead = document.createElement("thead");
-    thead.className = "bg-slate-700 sticky top-0 z-10";
+    thead.className = "bg-slate-700";
     const headerRow = document.createElement("tr");
-
     columns.forEach((key, idx) => {
       const th = document.createElement("th");
       th.className =
@@ -272,25 +269,26 @@ class MigratoStudio {
       th.textContent = key;
       headerRow.appendChild(th);
     });
-
     thead.appendChild(headerRow);
-    table.appendChild(thead);
+    headerTable.appendChild(thead);
+    outer.appendChild(headerTable);
 
+    // Scrollable body
+    const scrollDiv = document.createElement("div");
+    scrollDiv.className = "table-scroll";
+    const bodyTable = document.createElement("table");
+    bodyTable.className = "data-table";
     const tbody = document.createElement("tbody");
     tbody.className = "bg-slate-800";
-
     data.forEach((row, index) => {
       const tr = document.createElement("tr");
       tr.className =
         (index % 2 === 0 ? "bg-slate-800" : "bg-slate-750") +
         " hover:bg-slate-700 transition-colors duration-150";
-
-      // Set row ID attributes for editing
       const rowKeys = Object.keys(row);
       const firstKey = rowKeys[0];
       tr.setAttribute("data-row-id", firstKey);
       tr.setAttribute("data-row-id-value", String(row[firstKey]));
-
       columns.forEach((key, idx) => {
         const value = row[key];
         const td = document.createElement("td");
@@ -299,7 +297,6 @@ class MigratoStudio {
           (idx !== columns.length - 1 ? " border-r border-slate-700" : "");
         td.setAttribute("data-column", key);
         td.setAttribute("data-editable", "true");
-
         if (value === null) {
           td.innerHTML =
             '<span class="text-slate-500 italic text-xs">NULL</span>';
@@ -314,22 +311,20 @@ class MigratoStudio {
             td.textContent = valueStr;
           }
         }
-
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
     });
-
-    table.appendChild(tbody);
-    tableWrapper.appendChild(table);
-    tableContainer.appendChild(tableWrapper);
-    return tableContainer;
+    bodyTable.appendChild(tbody);
+    scrollDiv.appendChild(bodyTable);
+    outer.appendChild(scrollDiv);
+    return outer;
   }
 
   createPagination(data) {
     const pagination = document.createElement("div");
     pagination.className =
-      "flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t border-slate-700 bg-slate-800 p-4 rounded-b-lg";
+      "flex-shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-700 bg-slate-800 p-4 rounded-b-lg";
 
     const totalPages = Math.ceil(data.total / this.pageSize);
 
