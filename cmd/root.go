@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "v1.0.5"
+var Version string
 
 var rootCmd = &cobra.Command{
 	Use:   "migrato",
@@ -20,7 +20,7 @@ Examples:
   migrato generate
   migrato migrate
 `,
-Version: Version,
+	Version: Version,
 }
 
 // Execute runs the CLI
@@ -46,4 +46,14 @@ func init() {
 	rootCmd.AddCommand(docsCmd)
 	rootCmd.AddCommand(historyCmd)
 	rootCmd.AddCommand(logCmd)
+	rootCmd.AddCommand(studioCmd)
+
+	rootCmd.SetVersionTemplate("migrato version {{.Version}}\n")
+	rootCmd.Flags().BoolP("version", "v", false, "version for migrato")
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		if v, _ := cmd.Flags().GetBool("version"); v {
+			fmt.Printf("migrato version %s\n", Version)
+			os.Exit(0)
+		}
+	}
 }
