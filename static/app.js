@@ -9,6 +9,7 @@ class MigratoStudio {
     this.sidebarCollapsed = false;
     this.isDarkMode = true;
     this.editMode = false;
+    this.selectedRows = [];
     this.init();
   }
 
@@ -155,94 +156,80 @@ class MigratoStudio {
 
   createTableControls() {
     const controls = document.createElement("div");
-    controls.className = "flex items-center justify-between mb-6";
+    controls.className = "flex items-center justify-between mb-6 gap-4";
 
     const title = document.createElement("h2");
     title.className = "text-2xl font-bold text-white";
     title.textContent = this.currentTable;
 
-    const rightControls = document.createElement("div");
-    rightControls.className = "flex items-center space-x-4";
-
-    // Export dropdown
-    const exportDropdown = document.createElement("div");
-    exportDropdown.className = "relative";
-    exportDropdown.innerHTML =
-      '<button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 transition-colors flex items-center">Export</button>';
-
-    const exportMenu = document.createElement("div");
-    exportMenu.className =
-      "absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 hidden";
-    exportMenu.innerHTML =
-      '<div class="py-1"><a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="csv">Export as CSV</a><a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="json">Export as JSON</a><a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="sql">Export as SQL</a></div>';
-
-    exportDropdown.appendChild(exportMenu);
-
-    // Show/hide export menu
-    const exportBtn = exportDropdown.querySelector("button");
-    exportBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      exportMenu.classList.toggle("hidden");
+    // Search box (grow)
+    const searchBox = document.createElement("input");
+    searchBox.type = "text";
+    searchBox.placeholder = "Search...";
+    searchBox.className =
+      "flex-grow px-4 py-2 rounded-lg bg-slate-700 text-white border border-slate-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm";
+    searchBox.value = this.searchTerm;
+    searchBox.addEventListener("input", (e) => {
+      this.searchTerm = e.target.value;
+      this.currentPage = 1;
+      this.loadTableData();
     });
 
-    // Handle export format selection
-    exportMenu.addEventListener("click", (e) => {
+    // Edit toggle
+    const editToggle = document.createElement("button");
+    editToggle.className =
+      "px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-blue-600 hover:text-white transition-colors text-sm font-medium" +
+      (this.editMode ? " bg-blue-600 text-white" : "");
+    editToggle.textContent = this.editMode ? "Editing" : "Edit";
+    editToggle.onclick = () => this.toggleEditMode();
+
+    // Import/Export dropdown (right aligned)
+    const importExportDropdown = document.createElement("div");
+    importExportDropdown.className = "relative";
+    importExportDropdown.innerHTML =
+      '<button class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 transition-colors flex items-center">Import/Export</button>';
+    const importExportMenu = document.createElement("div");
+    importExportMenu.className =
+      "absolute right-0 mt-2 w-48 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 hidden";
+    importExportMenu.innerHTML =
+      '<div class="py-1">' +
+      '<a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="csv">Export as CSV</a>' +
+      '<a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="json">Export as JSON</a>' +
+      '<a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-format="sql">Export as SQL</a>' +
+      '<a href="#" class="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700" data-action="import">Import Data</a>' +
+      "</div>";
+    importExportDropdown.appendChild(importExportMenu);
+    const importExportBtn = importExportDropdown.querySelector("button");
+    importExportBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      importExportMenu.classList.toggle("hidden");
+    });
+    importExportMenu.addEventListener("click", (e) => {
       e.preventDefault();
       const format = e.target.getAttribute("data-format");
+      const action = e.target.getAttribute("data-action");
       if (format) {
         this.exportData(format);
-        exportMenu.classList.add("hidden");
+        importExportMenu.classList.add("hidden");
+      } else if (action === "import") {
+        this.showImportModal();
+        importExportMenu.classList.add("hidden");
       }
     });
 
-    // Import button
-    const importBtn = document.createElement("button");
-    importBtn.className =
-      "px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 transition-colors flex items-center";
-    importBtn.textContent = "Import";
+    // Delete Selected button container
+    const deleteBtnContainer = document.createElement("div");
+    deleteBtnContainer.id = "deleteSelectedBtnContainer";
+    deleteBtnContainer.className = "ml-2";
 
-    importBtn.addEventListener("click", () => {
-      this.showImportModal();
-    });
-
-    // Edit mode toggle button
-    const editToggle = document.createElement("button");
-    editToggle.id = "edit-mode-toggle";
-    editToggle.className =
-      "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 transition-colors";
-    editToggle.textContent = "Enable Edit Mode";
-
-    editToggle.addEventListener("click", () => {
-      this.toggleEditMode();
-    });
-
-    const searchBox = document.createElement("div");
-    searchBox.className = "relative";
-    searchBox.innerHTML =
-      '<input type="text" placeholder="Search in table..." value="' +
-      this.searchTerm +
-      '" class="pl-10 pr-4 py-3 bg-slate-800 border border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-80 text-white placeholder-slate-400">';
-    searchBox.innerHTML +=
-      '<span class="absolute left-3 top-3.5 h-5 w-5 text-slate-400">SEARCH</span>';
-
-    const input = searchBox.querySelector("input");
-    let debounceTimer;
-    input.addEventListener("input", (e) => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        this.searchTerm = e.target.value;
-        this.currentPage = 1;
-        this.loadTableData();
-      }, 300);
-    });
-
-    rightControls.appendChild(exportDropdown);
-    rightControls.appendChild(importBtn);
-    rightControls.appendChild(editToggle);
-    rightControls.appendChild(searchBox);
-
+    // Controls layout
     controls.appendChild(title);
-    controls.appendChild(rightControls);
+    controls.appendChild(searchBox);
+    controls.appendChild(editToggle);
+    controls.appendChild(importExportDropdown);
+    controls.appendChild(deleteBtnContainer);
+    // Save reference for later updates
+    this.deleteBtnContainer = deleteBtnContainer;
     return controls;
   }
 
@@ -250,17 +237,40 @@ class MigratoStudio {
     if (!columns || columns.length === 0) {
       columns = data[0] ? Object.keys(data[0]) : [];
     }
-    // Outer container
-    const outer = document.createElement("div");
-    outer.className =
+
+    // Single table container
+    const tableContainer = document.createElement("div");
+    tableContainer.className =
       "table-outer bg-slate-800 rounded-lg border border-slate-700";
 
-    // Header table
-    const headerTable = document.createElement("table");
-    headerTable.className = "data-table";
+    // Single scrollable container
+    const scrollDiv = document.createElement("div");
+    scrollDiv.className = "table-scroll";
+
+    // Single table with sticky header
+    const table = document.createElement("table");
+    table.className = "data-table";
+
+    // Header
     const thead = document.createElement("thead");
     thead.className = "bg-slate-700";
     const headerRow = document.createElement("tr");
+
+    // Checkbox column header
+    const thCheckbox = document.createElement("th");
+    thCheckbox.className = "checkbox-col border-b border-slate-600";
+    const selectAll = document.createElement("input");
+    selectAll.type = "checkbox";
+    selectAll.addEventListener("change", (e) => {
+      const checked = e.target.checked;
+      this.selectedRows = checked ? data.map((row) => row[columns[0]]) : [];
+      this.updateRowCheckboxes();
+      this.updateDeleteButton();
+    });
+    thCheckbox.appendChild(selectAll);
+    headerRow.appendChild(thCheckbox);
+
+    // Data columns header
     columns.forEach((key, idx) => {
       const th = document.createElement("th");
       th.className =
@@ -269,26 +279,46 @@ class MigratoStudio {
       th.textContent = key;
       headerRow.appendChild(th);
     });
-    thead.appendChild(headerRow);
-    headerTable.appendChild(thead);
-    outer.appendChild(headerTable);
 
-    // Scrollable body
-    const scrollDiv = document.createElement("div");
-    scrollDiv.className = "table-scroll";
-    const bodyTable = document.createElement("table");
-    bodyTable.className = "data-table";
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Body
     const tbody = document.createElement("tbody");
     tbody.className = "bg-slate-800";
+
     data.forEach((row, index) => {
       const tr = document.createElement("tr");
       tr.className =
         (index % 2 === 0 ? "bg-slate-800" : "bg-slate-750") +
         " hover:bg-slate-700 transition-colors duration-150";
+
+      // Checkbox cell
+      const tdCheckbox = document.createElement("td");
+      tdCheckbox.className = "checkbox-col border-b border-slate-700";
+      const rowCheckbox = document.createElement("input");
+      rowCheckbox.type = "checkbox";
+      rowCheckbox.checked = this.selectedRows.includes(row[columns[0]]);
+      rowCheckbox.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          this.selectedRows.push(row[columns[0]]);
+        } else {
+          this.selectedRows = this.selectedRows.filter(
+            (id) => id !== row[columns[0]]
+          );
+        }
+        this.updateRowCheckboxes();
+        this.updateDeleteButton();
+      });
+      tdCheckbox.appendChild(rowCheckbox);
+      tr.appendChild(tdCheckbox);
+
+      // Data cells
       const rowKeys = Object.keys(row);
       const firstKey = rowKeys[0];
       tr.setAttribute("data-row-id", firstKey);
       tr.setAttribute("data-row-id-value", String(row[firstKey]));
+
       columns.forEach((key, idx) => {
         const value = row[key];
         const td = document.createElement("td");
@@ -297,6 +327,7 @@ class MigratoStudio {
           (idx !== columns.length - 1 ? " border-r border-slate-700" : "");
         td.setAttribute("data-column", key);
         td.setAttribute("data-editable", "true");
+
         if (value === null) {
           td.innerHTML =
             '<span class="text-slate-500 italic text-xs">NULL</span>';
@@ -315,10 +346,53 @@ class MigratoStudio {
       });
       tbody.appendChild(tr);
     });
-    bodyTable.appendChild(tbody);
-    scrollDiv.appendChild(bodyTable);
-    outer.appendChild(scrollDiv);
-    return outer;
+
+    table.appendChild(tbody);
+    scrollDiv.appendChild(table);
+    tableContainer.appendChild(scrollDiv);
+
+    // Update functions
+    this.updateDeleteButton = () => {
+      if (!this.deleteBtnContainer) return;
+      this.deleteBtnContainer.innerHTML = "";
+      if (this.selectedRows.length > 0) {
+        const btn = document.createElement("button");
+        btn.id = "deleteSelectedBtn";
+        btn.className =
+          "ml-2 px-6 py-2 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition-colors font-semibold text-base";
+        btn.textContent = `Delete Selected (${this.selectedRows.length})`;
+        btn.onclick = () => this.deleteSelectedRows();
+        this.deleteBtnContainer.appendChild(btn);
+      }
+    };
+
+    this.updateRowCheckboxes = () => {
+      // Update all row checkboxes to match selectedRows
+      document
+        .querySelectorAll("tbody input[type='checkbox']")
+        .forEach((cb, idx) => {
+          const row = data[idx];
+          if (!row) return;
+          cb.checked = this.selectedRows.includes(row[columns[0]]);
+        });
+
+      // Update select-all checkbox
+      const selectAll = document.querySelector("thead input[type='checkbox']");
+      if (selectAll) {
+        selectAll.checked =
+          this.selectedRows.length === data.length && data.length > 0;
+        selectAll.indeterminate =
+          this.selectedRows.length > 0 &&
+          this.selectedRows.length < data.length;
+      }
+    };
+
+    setTimeout(() => {
+      this.updateRowCheckboxes();
+      this.updateDeleteButton();
+    }, 0);
+
+    return tableContainer;
   }
 
   createPagination(data) {
@@ -821,6 +895,32 @@ class MigratoStudio {
     } catch (error) {
       console.error("Import error:", error);
       this.showNotification("Import failed: " + error.message, "error");
+    }
+  }
+
+  async deleteSelectedRows() {
+    if (!this.currentTable || this.selectedRows.length === 0) return;
+    if (
+      !confirm(
+        `Delete ${this.selectedRows.length} selected row(s)? This cannot be undone!`
+      )
+    )
+      return;
+    try {
+      const response = await fetch(
+        `/api/table/${this.currentTable}/bulk-delete`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: this.selectedRows }),
+        }
+      );
+      if (!response.ok) throw new Error("Failed to delete rows");
+      this.selectedRows = [];
+      this.loadTableData();
+      this.showNotification("Rows deleted successfully!", "success");
+    } catch (err) {
+      this.showError("Delete failed: " + err.message);
     }
   }
 }

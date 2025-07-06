@@ -62,7 +62,13 @@ func startStudioServer(port string) error {
 	http.HandleFunc("/", server.handleIndex)
 	http.HandleFunc("/api/tables", server.handleTables)
 
-	http.HandleFunc("/api/table/", server.handleTableData)
+	http.HandleFunc("/api/table/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/bulk-delete") && r.Method == "DELETE" {
+			server.handleBulkDeleteTableData(w, r)
+			return
+		}
+		server.handleTableData(w, r)
+	})
 	http.HandleFunc("/api/update/", server.handleUpdateData)
 	http.HandleFunc("/api/export/", server.handleExportData)
 	http.HandleFunc("/api/import/", server.handleImportData)
@@ -349,7 +355,13 @@ func (s *StudioServer) handleIndex(w http.ResponseWriter, r *http.Request) {
             z-index: 1;
             background: #334155;
         }
-
+        .checkbox-col {
+            width: 44px;
+            min-width: 44px;
+            max-width: 44px;
+            text-align: center;
+            border-right: 1px solid #334155;
+        }
     </style>
 </head>
 <body class="bg-slate-900 text-white h-screen overflow-hidden">
@@ -1477,4 +1489,85 @@ func (s *StudioServer) validateColumns(ctx context.Context, pool *pgxpool.Pool, 
 	}
 
 	return nil
+}
+
+// Handler for bulk delete
+func (s *StudioServer) handleBulkDeleteTableData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "DELETE" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	// Extract table name from URL
+	path := strings.TrimPrefix(r.URL.Path, "/api/table/")
+	path = strings.TrimSuffix(path, "/bulk-delete")
+	if path == "" {
+		http.Error(w, "Table name required", http.StatusBadRequest)
+		return
+	}
+	if !isValidTableName(path) {
+		http.Error(w, "Invalid table name", http.StatusBadRequest)
+		return
+	}
+	// Parse JSON body
+	var req struct {
+		IDs []interface{} `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if len(req.IDs) == 0 {
+		http.Error(w, "No IDs provided", http.StatusBadRequest)
+		return
+	}
+	// Get PK column
+	pk, err := getPrimaryKeyColumn(path)
+	if err != nil || pk == "" {
+		http.Error(w, "Could not determine primary key column", http.StatusBadRequest)
+		return
+	}
+	// Build DELETE query
+	placeholders := make([]string, len(req.IDs))
+	for i := range req.IDs {
+		placeholders[i] = "$" + strconv.Itoa(i+1)
+	}
+	query := "DELETE FROM \"" + path + "\" WHERE \"" + pk + "\" IN (" + strings.Join(placeholders, ",") + ")"
+	pool, err := s.getPool()
+	if err != nil {
+		http.Error(w, "Database connection failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	ctx := context.Background()
+	_, err = pool.Exec(ctx, query, req.IDs...)
+	if err != nil {
+		http.Error(w, "Failed to delete rows: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"success":true}`))
+}
+
+// Helper to get PK column
+func getPrimaryKeyColumn(tableName string) (string, error) {
+	dsn := os.Getenv("DATABASE_URL")
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		return "", err
+	}
+	defer pool.Close()
+	ctx := context.Background()
+	query := `SELECT kcu.column_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.key_column_usage kcu
+		  ON tc.constraint_name = kcu.constraint_name
+		WHERE tc.constraint_type = 'PRIMARY KEY'
+		  AND tc.table_name = $1
+		  AND tc.table_schema = 'public'
+		LIMIT 1`
+	var pk string
+	err = pool.QueryRow(ctx, query, tableName).Scan(&pk)
+	if err != nil {
+		return "", err
+	}
+	return pk, nil
 }
