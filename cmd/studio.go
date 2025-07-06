@@ -33,7 +33,7 @@ The interface will be available at http://localhost:8080 by default.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		port := viper.GetString("studio.port")
 		if port == "" {
-			port = "8080"
+			port = "7777"
 		}
 
 		fmt.Printf("🚀 Starting Migrato Studio on http://localhost:%s\n", port)
