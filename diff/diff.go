@@ -174,34 +174,26 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			existingIndexes[idx.IndexName] = idx
 		}
 
-		// Check table-level indexes
+		// Check table-level indexes - only add if explicitly defined and missing
 		for _, idx := range model.Indexes {
-			if _, exists := existingIndexes[idx.Name]; !exists {
-				ops = append(ops, Operation{
-					Type:      CreateIndex,
-					TableName: model.TableName,
-					Index:     &idx,
-				})
+			if idx.Name != "" { // Only check named indexes
+				if _, exists := existingIndexes[idx.Name]; !exists {
+					ops = append(ops, Operation{
+						Type:      CreateIndex,
+						TableName: model.TableName,
+						Index:     &idx,
+					})
+				}
 			}
 		}
 
-		// Check column-level indexes
+		// Check column-level indexes - only add if explicitly defined and missing
 		for _, col := range model.Columns {
-			if col.Index != nil {
-				indexName := col.Index.Name
-				if indexName == "" {
-					// Generate index name if not provided
-					if len(col.Index.Columns) > 0 {
-						indexName = fmt.Sprintf("idx_%s_%s", model.TableName, strings.Join(col.Index.Columns, "_"))
-					} else {
-						indexName = fmt.Sprintf("idx_%s_%s", model.TableName, col.Name)
-					}
-				}
-				
-				if _, exists := existingIndexes[indexName]; !exists {
+			if col.Index != nil && col.Index.Name != "" { // Only check named indexes
+				if _, exists := existingIndexes[col.Index.Name]; !exists {
 					// Create index operation
 					index := schema.Index{
-						Name:    indexName,
+						Name:    col.Index.Name,
 						Table:   model.TableName,
 						Columns: col.Index.Columns,
 						Unique:  col.Index.Unique,
@@ -275,23 +267,18 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 
 // needsColumnModification checks if a column needs to be modified
 func needsColumnModification(existing introspect.ExistingColumn, model schema.Column) bool {
-	// Check if data type changed
-	if !strings.EqualFold(existing.DataType, model.Type) {
+	// Check if data type changed - be more lenient with type comparisons
+	if !isCompatibleType(existing.DataType, model.Type) {
 		return true
 	}
 
-	// Check if nullable constraint changed
-	// Note: We need to infer the nullable constraint from the schema
-	// For now, we'll assume all columns are nullable unless explicitly marked
-	modelNullable := true // Default to nullable
-	if model.NotNull {
-		modelNullable = false
-	}
+	// Check if nullable constraint changed - be more precise
+	modelNullable := !model.NotNull // model.NotNull = true means NOT NULL
 	if existing.IsNullable != modelNullable {
 		return true
 	}
 
-	// Check if default value changed
+	// Check if default value changed - be more lenient with default comparisons
 	existingDefault := existing.ColumnDefault
 	modelDefault := model.Default
 	
@@ -312,6 +299,60 @@ func needsColumnModification(existing introspect.ExistingColumn, model schema.Co
 	}
 
 	return false
+}
+
+// isCompatibleType checks if two types are compatible (allows for minor differences)
+func isCompatibleType(existingType, modelType string) bool {
+	existingType = strings.ToLower(strings.TrimSpace(existingType))
+	modelType = strings.ToLower(strings.TrimSpace(modelType))
+	
+	// Extract base types (remove size specifications)
+	existingBase := extractBaseType(existingType)
+	modelBase := extractBaseType(modelType)
+	
+	// If base types are the same, they're compatible
+	if existingBase == modelBase {
+		return true
+	}
+	
+	// Allow some common type variations
+	compatibleTypes := map[string][]string{
+		"varchar": {"text", "character varying"},
+		"text": {"varchar", "character varying"},
+		"character varying": {"varchar", "text"},
+		"int": {"integer", "int4"},
+		"integer": {"int", "int4"},
+		"int4": {"int", "integer"},
+		"bigint": {"int8"},
+		"int8": {"bigint"},
+		"smallint": {"int2"},
+		"int2": {"smallint"},
+		"numeric": {"decimal"},
+		"decimal": {"numeric"},
+		"timestamp": {"timestamp without time zone"},
+		"timestamp without time zone": {"timestamp"},
+		"timestamptz": {"timestamp with time zone"},
+		"timestamp with time zone": {"timestamptz"},
+	}
+	
+	if allowed, exists := compatibleTypes[existingBase]; exists {
+		for _, compatible := range allowed {
+			if modelBase == compatible {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// extractBaseType extracts the base type from a PostgreSQL type
+func extractBaseType(typeStr string) string {
+	// Remove size specifications like (255), (10,2), etc.
+	if idx := strings.Index(typeStr, "("); idx != -1 {
+		return typeStr[:idx]
+	}
+	return typeStr
 }
 
 // normalizeDefaultValue normalizes default values for comparison
