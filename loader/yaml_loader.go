@@ -27,7 +27,7 @@ type yamlColumn struct {
 	NotNull     bool           `yaml:"not_null"`
 	Default     *string        `yaml:"default"`
 	ForeignKey  *yamlForeignKey `yaml:"foreign_key,omitempty"`
-	Index       *yamlIndexConfig `yaml:"index,omitempty"`
+	Index       interface{}    `yaml:"index,omitempty"`
 }
 
 type yamlIndexConfig struct {
@@ -101,11 +101,43 @@ func LoadModelsFromYAML(filename string) ([]schema.Model, error) {
 
 			// Handle index
 			if c.Index != nil {
-				column.Index = &schema.IndexConfig{
-					Name:    c.Index.Name,
-					Columns: c.Index.Columns,
-					Unique:  c.Index.Unique,
-					Type:    c.Index.Type,
+				switch indexValue := c.Index.(type) {
+				case bool:
+					if indexValue {
+						// Simple boolean index - use default settings
+						column.Index = &schema.IndexConfig{
+							Name:    "",
+							Columns: []string{c.Name},
+							Unique:  false,
+							Type:    "btree",
+						}
+					}
+				case map[string]interface{}:
+					// Complex index configuration
+					indexConfig := &schema.IndexConfig{
+						Columns: []string{c.Name}, // Default to column name
+						Type:    "btree",          // Default type
+					}
+					
+					if name, ok := indexValue["name"].(string); ok {
+						indexConfig.Name = name
+					}
+					if columns, ok := indexValue["columns"].([]interface{}); ok {
+						indexConfig.Columns = make([]string, len(columns))
+						for i, col := range columns {
+							if colStr, ok := col.(string); ok {
+								indexConfig.Columns[i] = colStr
+							}
+						}
+					}
+					if unique, ok := indexValue["unique"].(bool); ok {
+						indexConfig.Unique = unique
+					}
+					if indexType, ok := indexValue["type"].(string); ok {
+						indexConfig.Type = indexType
+					}
+					
+					column.Index = indexConfig
 				}
 			}
 			
