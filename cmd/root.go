@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var Version = "v1.0.0"
+var Version = "v1.0.5"
 
 var rootCmd = &cobra.Command{
 	Use:   "migrato",
