@@ -37,12 +37,12 @@ Examples:
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load schema
-		schemaFile := docsFile
-		if schemaFile == "" {
-			schemaFile = "schema.yaml"
+		schemaFilePath := docsFile
+		if schemaFilePath == "" {
+			schemaFilePath = "schema.yaml"
 		}
 
-		models, err := loader.LoadModelsFromYAML(schemaFile)
+		models, err := loader.LoadModelsFromYAML(schemaFilePath)
 		if err != nil {
 			fmt.Printf("❌ Error loading schema: %v\n", err)
 			os.Exit(1)

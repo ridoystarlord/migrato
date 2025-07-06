@@ -25,6 +25,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - **Migration history**: Track execution times, users, and detailed migration records
 - **Migration logging**: Comprehensive activity logging with timestamps and user tracking
 - **Go struct generation**: Generate Go structs and repositories (experimental)
+- **Database browser**: Web-based interface for viewing and exploring table data (like Prisma Studio)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
 
@@ -147,6 +148,8 @@ go build -o migrato ./main.go
 - `migrato log` — Show recent migration activities
   - `-l, --limit` — Limit number of log entries to show (default: 50)
   - `-f, --follow` — Follow logs in real-time (future feature)
+- `migrato studio` — Launch web-based database browser
+  - `--port` — Port to run the web server on (default: 8080)
 
 ## Schema Example
 
@@ -694,6 +697,57 @@ type DB interface {
 Perfect for building your own ORM or integrating with any database driver!
 
 > **Note**: This feature is experimental. The primary focus is on the migration CLI functionality. We do not currently recommend using this feature in production.
+
+## Database Browser (Studio)
+
+Launch a web-based database browser similar to Prisma Studio:
+
+```sh
+migrato studio                    # Start on default port 8080
+migrato studio --port 3000       # Start on custom port
+```
+
+### Features
+
+- **Table Browser**: View all tables in your database
+- **Data Viewer**: Browse table data with pagination
+- **Search & Filter**: Search across text columns
+- **Responsive Design**: Works on desktop and mobile
+- **Real-time Updates**: Live data from your database
+
+### Usage
+
+1. **Set your database URL**:
+
+   ```env
+   DATABASE_URL=postgres://user:password@localhost:5432/dbname?sslmode=disable
+   ```
+
+2. **Start the studio**:
+
+   ```sh
+   migrato studio
+   ```
+
+3. **Open your browser** to `http://localhost:8080`
+
+4. **Browse your data**:
+   - Select tables from the sidebar
+   - View data with pagination
+   - Search across columns
+   - Navigate through large datasets
+
+### Interface
+
+The web interface provides:
+
+- **Sidebar**: List of all tables in your database
+- **Main Content**: Table data with search and pagination
+- **Search Box**: Filter data across text columns
+- **Pagination**: Navigate through large datasets
+- **Responsive Layout**: Works on all screen sizes
+
+Perfect for exploring your database during development!
 
 ## Health Checks & Validation
 
