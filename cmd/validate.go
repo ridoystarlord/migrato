@@ -14,8 +14,8 @@ import (
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
-	Short: "Validate YAML schema against database constraints",
-	Long: `Validate your YAML schema file against database constraints and best practices.
+	Short: "Validate schema against database constraints",
+	Long: `Validate your schema against database constraints and best practices.
 
 This command performs comprehensive validation including:
 - Table and column naming (PostgreSQL identifier rules, reserved keywords)
@@ -30,10 +30,19 @@ The validator works in two modes:
 - Offline: Validates schema syntax and relationships (no database required)
 - Online: Also checks against existing database state (requires DATABASE_URL)
 
+Default: Go structs from models/ directory
+- migrato validate                    # Validate Go structs (offline)
+- migrato validate --format json     # Output validation results as JSON
+
+With --yaml flag: YAML schema file
+- migrato validate --yaml             # Validate schema.yaml (offline)
+- migrato validate --yaml --schema custom.yaml  # Validate custom schema file
+
 Examples:
-  migrato validate                    # Validate schema.yaml (offline)
-  migrato validate --schema custom.yaml  # Validate custom schema file
+  migrato validate                    # Validate Go structs (default)
   migrato validate --format json     # Output validation results as JSON
+  migrato validate --yaml             # Validate schema.yaml
+  migrato validate --yaml --schema custom.yaml  # Validate custom schema file
   DATABASE_URL=postgres://... migrato validate  # Online validation
 `,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -56,9 +65,19 @@ func init() {
 
 func validateSchema() error {
 	// Load schema
-	models, err := loader.LoadModelsFromYAML(validateSchemaFile)
-	if err != nil {
-		return fmt.Errorf("failed to load schema: %v", err)
+	var models []schema.Model
+	var err error
+
+	if useYAML {
+		models, err = loader.LoadModelsFromYAML(validateSchemaFile)
+		if err != nil {
+			return fmt.Errorf("failed to load YAML schema: %v", err)
+		}
+	} else {
+		models, err = loader.LoadModelsFromTags("models")
+		if err != nil {
+			return fmt.Errorf("failed to load Go structs: %v", err)
+		}
 	}
 
 	// Check for DATABASE_URL in environment

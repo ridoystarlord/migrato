@@ -8,26 +8,55 @@ import (
 	"github.com/ridoystarlord/migrato/generator"
 	"github.com/ridoystarlord/migrato/introspect"
 	"github.com/ridoystarlord/migrato/loader"
+	"github.com/ridoystarlord/migrato/schema"
 	"github.com/spf13/cobra"
 )
 
 var schemaFile string
+var generateModelsDir string
 var dryRunGenerate bool
 
 func init() {
 	generateCmd.Flags().StringVarP(&schemaFile, "file", "f", "schema.yaml", "Schema YAML file to load")
+	generateCmd.Flags().StringVarP(&generateModelsDir, "models", "m", "models", "Models directory to load structs from")
 	generateCmd.Flags().BoolVar(&dryRunGenerate, "dry-run", false, "Preview the SQL that would be generated without writing files")
 }
 
 var generateCmd = &cobra.Command{
 	Use:   "generate",
-	Short: "Generate migration file from schema",
+	Short: "Generate migration file from schema (Go structs by default)",
+	Long: `Generate migration file from schema definition.
+
+Default: Go structs from models/ directory
+- migrato generate                    # Generate from models/ directory
+
+With --yaml flag: YAML schema file
+- migrato generate --yaml             # Generate from schema.yaml
+- migrato generate --yaml -f custom.yaml  # Generate from custom YAML file
+
+Examples:
+  migrato generate                    # Generate from Go structs (default)
+  migrato generate -m mymodels/       # Generate from custom models directory
+  migrato generate --yaml             # Generate from schema.yaml
+  migrato generate --yaml -f custom.yaml  # Generate from custom YAML file
+`,
 	Run: func(cmd *cobra.Command, args []string) {
 
-		models, err := loader.LoadModelsFromYAML(schemaFile)
-		if err != nil {
-			fmt.Println("❌ Loading schema.yaml:", err)
-			os.Exit(1)
+		var models []schema.Model
+		var err error
+
+		if useYAML {
+			models, err = loader.LoadModelsFromYAML(schemaFile)
+			if err != nil {
+				fmt.Println("❌ Loading schema.yaml:", err)
+				os.Exit(1)
+			}
+		} else {
+			models, err = loader.LoadModelsFromTags(generateModelsDir)
+			if err != nil {
+				fmt.Println("❌ Loading models from structs:", err)
+				os.Exit(1)
+			}
 		}
 
 		existing, err := introspect.IntrospectDatabase()

@@ -168,15 +168,78 @@ func DiffSchemas(models []schema.Model, existing []introspect.ExistingTable) []O
 			existingFKs[fk.ColumnName] = fk
 		}
 
+		// Track which columns are being added or dropped for foreign key logic
+		columnsBeingAdded := make(map[string]bool)
+		columnsBeingDropped := make(map[string]bool)
+		
 		for _, col := range model.Columns {
-			if col.ForeignKey != nil {
-				if _, exists := existingFKs[col.Name]; !exists {
-					// Foreign key doesn't exist: ADD FOREIGN KEY
+			if _, exists := existingCols[col.Name]; !exists {
+				columnsBeingAdded[col.Name] = true
+			}
+		}
+		
+		for _, col := range table.Columns {
+			if _, exists := modelCols[col.ColumnName]; !exists {
+				columnsBeingDropped[col.ColumnName] = true
+			}
+		}
+
+		// Only process foreign keys if this table has actual changes
+		tableHasChanges := len(columnsBeingAdded) > 0 || len(columnsBeingDropped) > 0
+		
+		// Check for column modifications that might affect foreign keys
+		for _, modelCol := range model.Columns {
+			if existingCol, exists := existingCols[modelCol.Name]; exists {
+				if needsSignificantColumnModification(existingCol, modelCol) {
+					tableHasChanges = true
+					break
+				}
+			}
+		}
+
+		// Only process foreign keys if the table has changes
+		if tableHasChanges {
+			// Only drop and re-add FKs for columns being dropped or whose FK definition changed
+			for _, col := range model.Columns {
+				if col.ForeignKey != nil {
+					if existingFK, exists := existingFKs[col.Name]; exists {
+						if needsForeignKeyUpdate(existingFK, col.ForeignKey) {
+							ops = append(ops, Operation{
+								Type:       DropForeignKey,
+								TableName:  model.TableName,
+								FKName:     existingFK.ConstraintName,
+								ForeignKey: &schema.ForeignKey{
+									ReferencesTable:  existingFK.ReferencesTable,
+									ReferencesColumn: existingFK.ReferencesColumn,
+									OnDelete:         existingFK.OnDelete,
+									OnUpdate:         existingFK.OnUpdate,
+								},
+								ColumnName: existingFK.ColumnName,
+							})
+							ops = append(ops, Operation{
+								Type:        AddForeignKey,
+								TableName:   model.TableName,
+								ColumnName:  col.Name,
+								ForeignKey:  col.ForeignKey,
+							})
+						}
+					}
+				}
+			}
+			// Drop FKs for columns being dropped
+			for _, existingFK := range table.ForeignKeys {
+				if columnsBeingDropped[existingFK.ColumnName] {
 					ops = append(ops, Operation{
-						Type:        AddForeignKey,
-						TableName:   model.TableName,
-						ColumnName:  col.Name,
-						ForeignKey:  col.ForeignKey,
+						Type:       DropForeignKey,
+						TableName:  model.TableName,
+						FKName:     existingFK.ConstraintName,
+						ForeignKey: &schema.ForeignKey{
+							ReferencesTable:  existingFK.ReferencesTable,
+							ReferencesColumn: existingFK.ReferencesColumn,
+							OnDelete:         existingFK.OnDelete,
+							OnUpdate:         existingFK.OnUpdate,
+						},
+						ColumnName: existingFK.ColumnName,
 					})
 				}
 			}
@@ -423,4 +486,43 @@ func areDefaultValuesEquivalent(existing, model string) bool {
 	}
 	
 	return false
+}
+
+// needsForeignKeyUpdate checks if a foreign key constraint needs to be updated
+func needsForeignKeyUpdate(existing introspect.ExistingForeignKey, model *schema.ForeignKey) bool {
+	// Check if the referenced table or column has changed
+	if existing.ReferencesTable != model.ReferencesTable {
+		return true
+	}
+	if existing.ReferencesColumn != model.ReferencesColumn {
+		return true
+	}
+	
+	// Check if the on_delete action has changed
+	existingOnDelete := normalizeForeignKeyAction(existing.OnDelete)
+	modelOnDelete := normalizeForeignKeyAction(model.OnDelete)
+	if existingOnDelete != modelOnDelete {
+		return true
+	}
+	
+	// Check if the on_update action has changed
+	existingOnUpdate := normalizeForeignKeyAction(existing.OnUpdate)
+	modelOnUpdate := normalizeForeignKeyAction(model.OnUpdate)
+	if existingOnUpdate != modelOnUpdate {
+		return true
+	}
+	
+	return false
+}
+
+// normalizeForeignKeyAction normalizes foreign key actions for comparison
+func normalizeForeignKeyAction(action string) string {
+	action = strings.ToUpper(strings.TrimSpace(action))
+	
+	// Handle empty string and NO ACTION as equivalent
+	if action == "" || action == "NO ACTION" {
+		return "NO ACTION"
+	}
+	
+	return action
 }

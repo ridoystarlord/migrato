@@ -17,29 +17,54 @@ import (
 var (
 	diffVisual bool
 	diffFile   string
+	diffModelsDir string
 )
 
 var diffCmd = &cobra.Command{
 	Use:   "diff",
 	Short: "Show differences between schema and database",
-	Long: `Show differences between your schema.yaml and the current database.
+	Long: `Show differences between your schema and the current database.
+
+Default: Go structs from models/ directory
+- migrato diff                    # Show differences in text format
+- migrato diff --visual          # Show differences in tree format with colors
+
+With --yaml flag: YAML schema file
+- migrato diff --yaml             # Show differences from schema.yaml
+- migrato diff --yaml -f custom.yaml  # Use custom YAML schema file
 
 Examples:
-  migrato diff                    # Show differences in text format
+  migrato diff                    # Show differences from Go structs (default)
   migrato diff --visual          # Show differences in tree format with colors
-  migrato diff -f custom.yaml    # Use custom schema file
+  migrato diff -m mymodels/      # Use custom models directory
+  migrato diff --yaml             # Show differences from schema.yaml
+  migrato diff --yaml -f custom.yaml --visual  # Use custom YAML with visual diff
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load schema
-		schemaFile := diffFile
-		if schemaFile == "" {
-			schemaFile = "schema.yaml"
-		}
+		var models []schema.Model
+		var err error
 
-		models, err := loader.LoadModelsFromYAML(schemaFile)
-		if err != nil {
-			fmt.Printf("❌ Error loading schema: %v\n", err)
-			os.Exit(1)
+		if useYAML {
+			schemaFile := diffFile
+			if schemaFile == "" {
+				schemaFile = "schema.yaml"
+			}
+			models, err = loader.LoadModelsFromYAML(schemaFile)
+			if err != nil {
+				fmt.Printf("❌ Error loading schema: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			modelsDir := diffModelsDir
+			if modelsDir == "" {
+				modelsDir = "models"
+			}
+			models, err = loader.LoadModelsFromTags(modelsDir)
+			if err != nil {
+				fmt.Printf("❌ Error loading models from structs: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
 		// Introspect database
@@ -334,4 +359,5 @@ func showTextDiff(operations []diff.Operation) {
 func init() {
 	diffCmd.Flags().BoolVarP(&diffVisual, "visual", "v", false, "Show changes in visual tree format")
 	diffCmd.Flags().StringVarP(&diffFile, "file", "f", "", "Schema file to use (default: schema.yaml)")
+	diffCmd.Flags().StringVarP(&diffModelsDir, "models", "m", "", "Models directory to use (default: models)")
 } 

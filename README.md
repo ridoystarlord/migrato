@@ -24,7 +24,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 - **Schema documentation**: Generate ERD diagrams and API docs (PlantUML, Mermaid, Graphviz)
 - **Migration history**: Track execution times, users, and detailed migration records
 - **Migration logging**: Comprehensive activity logging with timestamps and user tracking
-- **Go struct generation**: Generate Go structs and repositories (experimental)
+- **Go struct-based schema**: Define database schema using Go structs with migrato tags
 - **Database browser**: Web-based interface for viewing and exploring table data (like Prisma Studio)
 - Simple CLI interface
 - Inspired by Prisma Migrate, but for Go
@@ -72,6 +72,8 @@ go build -o migrato ./main.go
 
 ## Quickstart
 
+### Option 1: Go Structs (Recommended)
+
 1. **Set up your database connection**
 
    - Set the `DATABASE_URL` environment variable (or create a `.env` file):
@@ -79,11 +81,56 @@ go build -o migrato ./main.go
      DATABASE_URL=postgres://user:password@localhost:5432/dbname?sslmode=disable
      ```
 
-2. **Initialize a schema**
+2. **Initialize the project with Go structs**
 
    ```sh
    migrato init
-   # Creates a sample schema.yaml
+   # Creates a models/ directory with example Go structs
+   ```
+
+3. **Edit the structs in `models/main.go`** to define your database schema using Go code.
+
+4. **Generate a migration**
+
+   ```sh
+   migrato generate --structs
+   # Generates a SQL migration file from your Go structs
+   ```
+
+5. **Apply migrations**
+
+   ```sh
+   migrato migrate
+   # Applies all pending migrations to your database
+   ```
+
+6. **Check migration status**
+
+   ```sh
+   migrato status
+   # Shows applied and pending migrations
+   ```
+
+7. **Rollback migrations (if needed)**
+   ```sh
+   migrato rollback        # Rollback the last migration
+   migrato rollback -s 3   # Rollback the last 3 migrations
+   ```
+
+### Option 2: YAML Schema (Alternative)
+
+1. **Set up your database connection**
+
+   - Set the `DATABASE_URL` environment variable (or create a `.env` file):
+     ```env
+     DATABASE_URL=postgres://user:password@localhost:5432/dbname?sslmode=disable
+     ```
+
+2. **Initialize with YAML schema**
+
+   ```sh
+   migrato init --yaml
+   # Creates a schema.yaml file with example tables
    ```
 
 3. **Edit `schema.yaml`** to define your tables and columns.
@@ -92,7 +139,7 @@ go build -o migrato ./main.go
 
    ```sh
    migrato generate
-   # Generates a SQL migration file in the migrations/ folder
+   # Generates a SQL migration file from your YAML schema
    ```
 
 5. **Apply migrations**
@@ -117,13 +164,24 @@ go build -o migrato ./main.go
 
 ## CLI Commands
 
-- `migrato init` — Create an example `schema.yaml` file
+### Schema Management
+
+- `migrato init` — Initialize a new project (Go structs recommended)
+  - `--structs` — Initialize with Go structs (default)
+  - `--yaml` — Initialize with YAML schema file
+
+### Migration Generation
+
 - `migrato generate` — Generate a migration file from your schema
+
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
-- `migrato generate-structs` — Generate Go structs and repositories from schema (Experimental)
+  - `--structs` — Use Go structs instead of YAML schema
+  - `-m, --models` — Models directory to load structs from (default: `models`)
+
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
   - `-o, --output` — Output directory for generated structs (default: `models`)
   - `-p, --package` — Package name for generated structs (default: `models`)
+
 - `migrato migrate` — Apply all pending migrations
 - `migrato rollback` — Rollback migrations
   - `-s, --steps` — Number of migrations to rollback (default: 1)
@@ -138,6 +196,8 @@ go build -o migrato ./main.go
 - `migrato diff` — Show differences between schema and database
   - `-v, --visual` — Show changes in visual tree format with colors
   - `-f, --file` — Specify a custom schema YAML file (default: `schema.yaml`)
+  - `--structs` — Use Go structs instead of YAML schema
+  - `-m, --models` — Models directory to use (default: `models`)
 - `migrato docs` — Generate documentation from schema
   - `-f, --format` — Output format (plantuml, mermaid, graphviz, api, all)
   - `-o, --output` — Output file or directory (default: format-specific filename)
@@ -287,6 +347,103 @@ tables:
 - `columns`: Array of column names for composite indexes
 - `unique`: Whether the index enforces uniqueness
 - `type`: Index type (btree, hash, gin, gist, etc.)
+
+## Go Structs Schema (Recommended)
+
+Instead of YAML, you can define your database schema using Go structs. This provides better type safety, IDE support, and more flexibility.
+
+### Creating Models
+
+```sh
+migrato init
+# Creates a models/ directory with example structs
+```
+
+### Schema Definition with Tags
+
+```go
+package models
+
+import (
+	"time"
+	"github.com/google/uuid"
+)
+
+// User represents a user in the system
+type User struct {
+	ID        int       `migrato:"primary;type:serial"`
+	Email     string    `migrato:"unique;not_null;index"`
+	Name      string    `migrato:"not_null"`
+	CreatedAt time.Time `migrato:"default:now()"`
+}
+
+// Post represents a blog post
+type Post struct {
+	ID        int       `migrato:"primary;type:serial"`
+	Title     string    `migrato:"not_null"`
+	Content   string    `migrato:"not_null"`
+	UserID    int       `migrato:"fk:users.id:CASCADE"`
+	CreatedAt time.Time `migrato:"default:now()"`
+}
+
+// Product represents a product in an e-commerce system
+type Product struct {
+	ID          uuid.UUID `migrato:"primary;type:uuid;default:uuid_generate_v4()"`
+	Name        string    `migrato:"not_null;index"`
+	Description string    `migrato:"type:text"`
+	Price       float64   `migrato:"type:numeric(10,2);not_null"`
+	CategoryID  int       `migrato:"fk:categories.id:RESTRICT"`
+	IsActive    bool      `migrato:"default:true"`
+	CreatedAt   time.Time `migrato:"default:now()"`
+}
+```
+
+### Tag Syntax
+
+The `migrato` tag uses a simple syntax: `migrato:"option1;option2;key:value"`
+
+#### Basic Options
+
+- `primary` - Primary key
+- `unique` - Unique constraint
+- `not_null` - NOT NULL constraint
+- `index` - Create an index on this column
+
+#### Key-Value Options
+
+- `type:postgres_type` - Specify PostgreSQL data type
+- `default:value` - Default value
+- `fk:table.column:on_delete:on_update` - Foreign key reference
+- `index:name:type:unique` - Index configuration
+
+### Type Mapping
+
+Go types are automatically mapped to PostgreSQL types:
+
+- `int` → `integer`
+- `int64` → `bigint`
+- `string` → `text`
+- `bool` → `boolean`
+- `float64` → `numeric`
+- `time.Time` → `timestamp`
+- `uuid.UUID` → `uuid`
+
+### Generating Migrations from Structs
+
+```sh
+migrato generate --structs
+# Generates migrations from your Go structs
+```
+
+### Advantages of Tag-Based Structs
+
+- **Type Safety**: Compile-time checking of schema definitions
+- **IDE Support**: Auto-completion, refactoring, and error detection
+- **Version Control**: Better diff tracking and merge conflict resolution
+- **Reusability**: Can be imported and used in your application code
+- **Validation**: Can add custom validation logic
+- **Documentation**: Self-documenting code with comments
+- **Familiar**: Similar to GORM and other Go ORMs
 
 ### Default Values
 
@@ -689,70 +846,6 @@ migrato log --limit 20         # Show last 20 log entries
 - Writes migration files to `migrations/` with up/down sections
 - Applies migrations and tracks them in `schema_migrations` table
 - Supports rolling back migrations using the generated rollback SQL
-
-## Go Struct Generation (Experimental)
-
-Generate type-safe Go structs and repositories from your schema:
-
-```sh
-migrato generate-structs
-```
-
-This creates a clean, modular structure:
-
-- **models/** - Individual model files (user.go, post.go, etc.)
-- **repositories/** - Repository implementations (user_repository.go, post_repository.go, etc.)
-- **models/db.go** - Database interface definition
-
-### Generated Structure
-
-```
-models/
-├── models/
-│   ├── user.go
-│   ├── post.go
-│   └── db.go
-└── repositories/
-    ├── user_repository.go
-    └── post_repository.go
-```
-
-### Example Generated Code
-
-```go
-// models/user.go
-type User struct {
-	ID    int    `db:"id" json:"id" migrato:"primary"`
-	Email string `db:"email" json:"email" migrato:"unique"`
-	Name  string `db:"name" json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// repositories/user_repository.go
-type UserRepository struct {
-	db *DB
-}
-
-func (r *UserRepository) Create(user *User) error {
-	return r.db.Create(user).Error
-}
-
-// models/db.go
-type DB interface {
-	Create(value interface{}) *DB
-	Where(query interface{}, args ...interface{}) *DB
-	Find(dest interface{}) *DB
-	First(dest interface{}) *DB
-	Save(value interface{}) *DB
-	Delete(value interface{}) *DB
-	Error() error
-}
-```
-
-Perfect for building your own ORM or integrating with any database driver!
-
-> **Note**: This feature is experimental. The primary focus is on the migration CLI functionality. We do not currently recommend using this feature in production.
 
 ## Database Browser (Studio)
 

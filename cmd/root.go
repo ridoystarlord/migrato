@@ -8,6 +8,7 @@ import (
 )
 
 var Version string
+var useYAML bool
 
 var rootCmd = &cobra.Command{
 	Use:     "migrato",
@@ -41,12 +42,13 @@ func Execute() {
 
 // Register subcommands
 func init() {
+	rootCmd.PersistentFlags().BoolVar(&useYAML, "yaml", false, "Use YAML schema instead of Go structs")
 	rootCmd.AddCommand(generateCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(rollbackCmd)
-	rootCmd.AddCommand(generateStructsCmd)
+
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
