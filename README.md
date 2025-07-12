@@ -997,6 +997,28 @@ This detects:
 - Foreign key constraint issues
 - Pending migrations
 
+## Release Notes
+
+For detailed information about each release, see the [CHANGELOG.md](CHANGELOG.md) file.
+
+### Latest Release: v1.3.0
+
+**Key Features:**
+
+- **Go struct-based schema definition** with `migrato` tags (recommended approach)
+- **Improved diff logic** for minimal migration generation
+- **Enhanced rollback support** with robust error handling
+- **Dual schema support** for both Go structs and YAML
+
+**Breaking Changes:** None - existing YAML workflows continue to work.
+
+**Migration Guide:** New projects are recommended to use Go structs for better type safety and IDE support.
+
+### Previous Releases
+
+- **v1.2.0**: Database browser (Studio), enhanced logging, schema documentation
+- **v1.1.x**: Core migration functionality, YAML schema support
+
 ## Requirements
 
 - Go 1.22+
