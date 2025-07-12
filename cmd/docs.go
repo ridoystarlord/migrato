@@ -21,7 +21,7 @@ var (
 var docsCmd = &cobra.Command{
 	Use:   "docs",
 	Short: "Generate documentation from schema",
-	Long: `Generate ERD diagrams and API documentation from your schema.yaml.
+	Long: `Generate ERD diagrams and API documentation from your schema.
 
 Supported formats:
   - plantuml: PlantUML ERD diagram
@@ -29,23 +29,42 @@ Supported formats:
   - graphviz: Graphviz DOT format
   - api: REST API documentation
 
+Default: Go structs from models/ directory
+- migrato docs --format plantuml --output erd.puml
+- migrato docs --format mermaid --output erd.md
+
+With --yaml flag: YAML schema file
+- migrato docs --yaml --format plantuml --output erd.puml
+- migrato docs --yaml --format mermaid --output erd.md
+
 Examples:
   migrato docs --format plantuml --output erd.puml
   migrato docs --format mermaid --output erd.md
   migrato docs --format api --output api.md
   migrato docs --format all --output docs/
+  migrato docs --yaml --format plantuml --output erd.puml
 `,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Load schema
-		schemaFilePath := docsFile
-		if schemaFilePath == "" {
-			schemaFilePath = "schema.yaml"
-		}
+		var models []schema.Model
+		var err error
 
-		models, err := loader.LoadModelsFromYAML(schemaFilePath)
-		if err != nil {
-			fmt.Printf("❌ Error loading schema: %v\n", err)
-			os.Exit(1)
+		if useYAML {
+			schemaFilePath := docsFile
+			if schemaFilePath == "" {
+				schemaFilePath = "schema.yaml"
+			}
+			models, err = loader.LoadModelsFromYAML(schemaFilePath)
+			if err != nil {
+				fmt.Printf("❌ Error loading YAML schema: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			models, err = loader.LoadModelsFromTags("models")
+			if err != nil {
+				fmt.Printf("❌ Error loading Go structs: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
 		if len(models) == 0 {
