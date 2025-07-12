@@ -190,6 +190,9 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.AddColumn:
+			if op.Column == nil {
+				return nil, fmt.Errorf("rollback AddColumn: missing Column for table %s", op.TableName)
+			}
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP COLUMN "%s";`,
 				op.TableName,
 				op.Column.Name,
@@ -221,16 +224,19 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			}
 
 		case diff.ModifyColumn:
-			// For rollback, we need to revert the column modifications
-			if op.OldColumn != nil {
-				stmt, err := generateModifyColumnRollback(op)
-				if err != nil {
-					return nil, fmt.Errorf("generate MODIFY COLUMN rollback: %v", err)
-				}
-				sqlStatements = append(sqlStatements, stmt)
+			if op.Column == nil || op.OldColumn == nil {
+				return nil, fmt.Errorf("rollback ModifyColumn: missing Column or OldColumn for table %s", op.TableName)
 			}
+			stmt, err := generateModifyColumnRollback(op)
+			if err != nil {
+				return nil, fmt.Errorf("generate MODIFY COLUMN rollback: %v", err)
+			}
+			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.RenameColumn:
+			if op.NewColumnName == "" || op.ColumnName == "" {
+				return nil, fmt.Errorf("rollback RenameColumn: missing NewColumnName or ColumnName for table %s", op.TableName)
+			}
 			// For rollback, rename back to original name
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s";`,
 				op.TableName,
@@ -256,6 +262,9 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			}
 
 		case diff.AddForeignKey:
+			if op.TableName == "" || op.ForeignKey == nil {
+				return nil, fmt.Errorf("rollback AddForeignKey: missing TableName or ForeignKey")
+			}
 			// For rollback, drop the foreign key constraint
 			constraintName := fmt.Sprintf("fk_%s_%s", op.TableName, op.ForeignKey.ReferencesTable)
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" DROP CONSTRAINT "%s";`,
@@ -265,6 +274,9 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.DropForeignKey:
+			if op.TableName == "" || op.FKName == "" || op.ForeignKey == nil || op.ColumnName == "" {
+				return nil, fmt.Errorf("rollback DropForeignKey: missing TableName, FKName, ForeignKey, or ColumnName")
+			}
 			// For rollback, we need to recreate the foreign key
 			stmt := fmt.Sprintf(`ALTER TABLE "%s" ADD CONSTRAINT "%s" FOREIGN KEY ("%s") REFERENCES "%s" ("%s")`,
 				op.TableName,
@@ -282,20 +294,31 @@ func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 			sqlStatements = append(sqlStatements, stmt+";")
 
 		case diff.CreateIndex:
+			if op.Index == nil || op.Index.Name == "" {
+				return nil, fmt.Errorf("rollback CreateIndex: missing Index or Index.Name for table %s", op.TableName)
+			}
 			stmt := fmt.Sprintf(`DROP INDEX IF EXISTS "%s";`,
 				op.Index.Name,
 			)
 			sqlStatements = append(sqlStatements, stmt)
 
 		case diff.DropIndex:
-			// For rollback, we need to recreate the index
-			// Note: We don't have the original index definition, so we'll create a basic index
-			stmt := fmt.Sprintf(`CREATE INDEX "%s" ON "%s" ("%s");`,
-				op.IndexName,
-				op.TableName,
-				op.ColumnName, // Use the column name if available
-			)
-			sqlStatements = append(sqlStatements, stmt)
+			if op.IndexName != "" && op.TableName != "" {
+				// For rollback, we need to recreate the index
+				// Note: We don't have the original index definition, so we'll create a basic index
+				columnName := "id" // Default column name
+				if op.ColumnName != "" {
+					columnName = op.ColumnName
+				}
+				stmt := fmt.Sprintf(`CREATE INDEX "%s" ON "%s" ("%s");`,
+					op.IndexName,
+					op.TableName,
+					columnName,
+				)
+				sqlStatements = append(sqlStatements, stmt)
+			} else {
+				return nil, fmt.Errorf("rollback DropIndex: missing IndexName or TableName for index rollback")
+			}
 
 		default:
 			return nil, fmt.Errorf("unsupported rollback operation: %s", op.Type)
