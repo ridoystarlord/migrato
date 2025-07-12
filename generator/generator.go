@@ -38,6 +38,27 @@ func formatDefaultValue(defaultVal string) string {
 // GenerateSQL converts a list of Operations into raw SQL statements.
 func GenerateSQL(ops []diff.Operation) ([]string, error) {
 	var sqlStatements []string
+	needsUUIDExtension := false
+
+	// Check if any operation uses UUID types
+	for _, op := range ops {
+		if op.Type == diff.CreateTable {
+			for _, col := range op.Columns {
+				if strings.Contains(strings.ToLower(col.Type), "uuid") {
+					needsUUIDExtension = true
+					break
+				}
+			}
+		}
+		if needsUUIDExtension {
+			break
+		}
+	}
+
+	// Add UUID extension if needed
+	if needsUUIDExtension {
+		sqlStatements = append(sqlStatements, `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`)
+	}
 
 	for _, op := range ops {
 		switch op.Type {
@@ -141,6 +162,22 @@ func GenerateSQL(ops []diff.Operation) ([]string, error) {
 // GenerateRollbackSQL converts a list of Operations into rollback SQL statements.
 func GenerateRollbackSQL(ops []diff.Operation) ([]string, error) {
 	var sqlStatements []string
+	needsUUIDExtension := false
+
+	// Check if any operation uses UUID types
+	for _, op := range ops {
+		if op.Type == diff.CreateTable {
+			for _, col := range op.Columns {
+				if strings.Contains(strings.ToLower(col.Type), "uuid") {
+					needsUUIDExtension = true
+					break
+				}
+			}
+		}
+		if needsUUIDExtension {
+			break
+		}
+	}
 
 	// Process operations in reverse order for rollback
 	for i := len(ops) - 1; i >= 0; i-- {

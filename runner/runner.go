@@ -114,7 +114,7 @@ func logMigrationActivity(conn *pgx.Conn, ctx context.Context, level, message, m
 }
 
 func getAppliedMigrations(conn *pgx.Conn, ctx context.Context) (map[string]bool, error) {
-	rows, err := conn.Query(ctx, `SELECT filename FROM schema_migrations;`)
+	rows, err := conn.Query(ctx, `SELECT filename FROM schema_migrations WHERE status = 'success';`)
 	if err != nil {
 		return nil, fmt.Errorf("query applied migrations: %v", err)
 	}
@@ -132,7 +132,7 @@ func getAppliedMigrations(conn *pgx.Conn, ctx context.Context) (map[string]bool,
 }
 
 func getAppliedMigrationsOrdered(conn *pgx.Conn, ctx context.Context) ([]string, error) {
-	rows, err := conn.Query(ctx, `SELECT filename FROM schema_migrations ORDER BY applied_at DESC;`)
+	rows, err := conn.Query(ctx, `SELECT filename FROM schema_migrations WHERE status = 'success' ORDER BY applied_at DESC;`)
 	if err != nil {
 		return nil, fmt.Errorf("query applied migrations: %v", err)
 	}
@@ -147,6 +147,24 @@ func getAppliedMigrationsOrdered(conn *pgx.Conn, ctx context.Context) ([]string,
 		applied = append(applied, fname)
 	}
 	return applied, nil
+}
+
+func getFailedMigrations(conn *pgx.Conn, ctx context.Context) ([]MigrationRecord, error) {
+	rows, err := conn.Query(ctx, `SELECT filename, error_message FROM schema_migrations WHERE status = 'failed';`)
+	if err != nil {
+		return nil, fmt.Errorf("query failed migrations: %v", err)
+	}
+	defer rows.Close()
+
+	var failed []MigrationRecord
+	for rows.Next() {
+		var record MigrationRecord
+		if err := rows.Scan(&record.MigrationName, &record.ErrorMessage); err != nil {
+			return nil, fmt.Errorf("scan failed migration: %v", err)
+		}
+		failed = append(failed, record)
+	}
+	return failed, nil
 }
 
 func getMigrationFiles() ([]string, error) {
@@ -295,6 +313,21 @@ func ApplyMigrations() error {
 		return fmt.Errorf("ensure migrations table: %v", err)
 	}
 
+	// Check for failed migrations first
+	failedMigrations, err := getFailedMigrations(conn, ctx)
+	if err != nil {
+		return fmt.Errorf("check failed migrations: %v", err)
+	}
+	
+	if len(failedMigrations) > 0 {
+		fmt.Println("❌ Found failed migrations that need to be resolved:")
+		for _, migration := range failedMigrations {
+			fmt.Printf("   - %s: %s\n", migration.MigrationName, migration.ErrorMessage)
+		}
+		fmt.Println("💡 Please fix the issues and run 'migrato migrate' again.")
+		return fmt.Errorf("failed migrations detected")
+	}
+
 	// Get applied migrations
 	applied, err := getAppliedMigrations(conn, ctx)
 	if err != nil {
@@ -376,20 +409,20 @@ func RollbackMigrations(steps int) error {
 	return nil
 }
 
-func Status() ([]string, []string, error) {
+func Status() ([]string, []string, []MigrationRecord, error) {
 	conn, ctx, err := getConn()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer conn.Close(ctx)
 
 	if err := ensureMigrationsTable(conn, ctx); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	appliedMap, err := getAppliedMigrations(conn, ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var applied []string
@@ -399,7 +432,7 @@ func Status() ([]string, []string, error) {
 
 	files, err := getMigrationFiles()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var pending []string
@@ -409,7 +442,13 @@ func Status() ([]string, []string, error) {
 		}
 	}
 
-	return applied, pending, nil
+	// Get failed migrations
+	failed, err := getFailedMigrations(conn, ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return applied, pending, failed, nil
 }
 
 // GetMigrationHistory retrieves migration history with optional filtering
