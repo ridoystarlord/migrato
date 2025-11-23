@@ -6,7 +6,7 @@ A lightweight, Prisma-like migration tool for Go and PostgreSQL.
 
 ## Features
 
-- Generate SQL migrations from a YAML schema
+- Generate SQL migrations from a YAML schemas
 - Introspect your existing PostgreSQL database
 - Apply and track migrations
 - **Migration rollbacks** with automatic rollback SQL generation
